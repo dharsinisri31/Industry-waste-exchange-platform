@@ -26,6 +26,10 @@ datasets/
 *.tar.gz
 *.zip
 
+# Whitelist required runtime AI model weights
+!ai-service/models/classification/material_classifier_efficientnet_b0.pth
+!ai-service/models/detection/best_waste_detector.pt
+
 # Environment Variables & Secrets
 .env
 .env.local
@@ -42,11 +46,13 @@ build/
 **/build/
 dist-ssr/
 outputs/
+**/outputs/
 **/runs/
 
 # Uploads & Temp Files
-uploads/
-**/uploads/
+uploads/*
+**/uploads/*
+!**/uploads/.gitkeep
 *.log
 logs/
 **/logs/
