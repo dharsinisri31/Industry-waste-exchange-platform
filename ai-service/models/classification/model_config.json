@@ -1,0 +1,26 @@
+{
+  "model_name": "EfficientNet-B0",
+  "architecture": "efficientnet_b0",
+  "input_shape": [
+    3,
+    224,
+    224
+  ],
+  "num_classes": 6,
+  "class_names": [
+    "cardboard",
+    "glass",
+    "metal",
+    "paper",
+    "plastic",
+    "trash"
+  ],
+  "best_epoch": 9,
+  "best_val_acc": 0.9050131926121372,
+  "epochs_trained": 12,
+  "batch_size": 32,
+  "learning_rate": 0.001,
+  "model_file": "material_classifier_efficientnet_b0.pth",
+  "status": "trained",
+  "limitation_note": "6-class baseline model (cardboard, glass, metal, paper, plastic, trash). Does not distinguish PET/HDPE/LDPE or Aluminium/Copper/Steel/Brass."
+}

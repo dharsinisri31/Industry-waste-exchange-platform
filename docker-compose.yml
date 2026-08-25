@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: waste_exchange_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: always
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: waste_exchange_ai
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - ENVIRONMENT=production
+    restart: always
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: waste_exchange_server
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - MONGO_URI=mongodb://mongodb:27017/ai-waste-exchange
+      - JWT_ACCESS_SECRET=9fc6d80f3aaebe97bba0dcfe9174842432337ce852cfac8130ee00e601d31ffb
+      - JWT_REFRESH_SECRET=super_secret_refresh_token_key_for_industrial_waste_exchange_2026
+      - AI_SERVICE_URL=http://ai-service:8000
+    depends_on:
+      - mongodb
+      - ai-service
+    restart: always
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: waste_exchange_client
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:5000/api
+    depends_on:
+      - server
+    restart: always
+
+volumes:
+  mongo_data:
