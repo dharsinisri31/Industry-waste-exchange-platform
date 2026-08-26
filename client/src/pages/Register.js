@@ -9,8 +9,8 @@ import {
 } from 'react-icons/fi';
 
 export default function Register() {
-  // Strictly 2 Roles: 'sender' (Waste Producer) or 'receiver' (Waste Recycler / Buyer)
-  const [accountType, setAccountType] = useState('sender');
+  // 3 Distinct Role Configurations: 'buyer', 'seller', or 'both'
+  const [accountType, setAccountType] = useState('seller');
 
   const [formData, setFormData] = useState({
     email: '',
@@ -51,9 +51,13 @@ export default function Register() {
     setIsLoading(true);
 
     try {
+      const assignedRoles = accountType === 'buyer' ? ['buyer'] : accountType === 'seller' ? ['seller'] : ['buyer', 'seller'];
+      const businessRole = accountType === 'buyer' ? 'receiver' : accountType === 'seller' ? 'sender' : 'both';
+
       const payload = {
         ...formData,
-        businessRole: accountType // 'sender' or 'receiver'
+        roles: assignedRoles,
+        businessRole
       };
 
       await registerIndustry(payload);
@@ -97,41 +101,57 @@ export default function Register() {
           </p>
         </div>
 
-        {/* 2 Account Role Selector Tabs (Strictly Producer & Recycler) */}
+        {/* 3 Account Role Selector Tabs (Buyer, Seller, Buyer & Seller) */}
         <div className="space-y-2">
           <label className="text-xs font-bold uppercase tracking-wider text-gray-700 block text-center">
-            Select Your Company Participation Role
+            Select Your Company Participation Configuration
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-1.5 bg-gray-100 rounded-2xl border border-gray-200">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-1.5 bg-gray-100 rounded-2xl border border-gray-200">
             <button
               type="button"
-              onClick={() => setAccountType('sender')}
-              className={`py-3 px-4 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
-                accountType === 'sender'
-                  ? 'bg-emerald-600 text-white shadow-xs'
+              onClick={() => setAccountType('buyer')}
+              className={`py-3 px-3 rounded-xl text-xs font-extrabold transition-all flex flex-col items-center justify-center gap-1.5 cursor-pointer ${
+                accountType === 'buyer'
+                  ? 'bg-teal-700 text-white shadow-xs'
                   : 'text-gray-700 hover:text-gray-900 bg-white/50 sm:bg-transparent'
               }`}
             >
-              <FiUploadCloud className="w-5 h-5 shrink-0" />
-              <div className="text-left">
-                <div className="leading-tight">1. Waste Producer</div>
-                <div className="text-[10px] font-normal opacity-85">Generates industrial by-products</div>
+              <FiRefreshCw className="w-4 h-4 shrink-0" />
+              <div className="text-center">
+                <div className="leading-tight">1. Buyer</div>
+                <div className="text-[10px] font-normal opacity-85">Procures secondary materials</div>
               </div>
             </button>
 
             <button
               type="button"
-              onClick={() => setAccountType('receiver')}
-              className={`py-3 px-4 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
-                accountType === 'receiver'
-                  ? 'bg-teal-700 text-white shadow-xs'
+              onClick={() => setAccountType('seller')}
+              className={`py-3 px-3 rounded-xl text-xs font-extrabold transition-all flex flex-col items-center justify-center gap-1.5 cursor-pointer ${
+                accountType === 'seller'
+                  ? 'bg-emerald-600 text-white shadow-xs'
                   : 'text-gray-700 hover:text-gray-900 bg-white/50 sm:bg-transparent'
               }`}
             >
-              <FiRefreshCw className="w-5 h-5 shrink-0" />
-              <div className="text-left">
-                <div className="leading-tight">2. Waste Recycler / Buyer</div>
-                <div className="text-[10px] font-normal opacity-85">Procures secondary raw materials</div>
+              <FiUploadCloud className="w-4 h-4 shrink-0" />
+              <div className="text-center">
+                <div className="leading-tight">2. Seller</div>
+                <div className="text-[10px] font-normal opacity-85">Lists industrial by-products</div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAccountType('both')}
+              className={`py-3 px-3 rounded-xl text-xs font-extrabold transition-all flex flex-col items-center justify-center gap-1.5 cursor-pointer ${
+                accountType === 'both'
+                  ? 'bg-[#12233F] text-white shadow-xs'
+                  : 'text-gray-700 hover:text-gray-900 bg-white/50 sm:bg-transparent'
+              }`}
+            >
+              <FiBriefcase className="w-4 h-4 shrink-0" />
+              <div className="text-center">
+                <div className="leading-tight">3. Buyer & Seller</div>
+                <div className="text-[10px] font-normal opacity-85">Dual circular exchange role</div>
               </div>
             </button>
           </div>
@@ -139,18 +159,25 @@ export default function Register() {
 
         {/* Role Explanatory Banner */}
         <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl text-xs leading-relaxed text-gray-800 font-medium">
-          {accountType === 'sender' ? (
+          {accountType === 'seller' ? (
             <div className="flex items-start gap-2.5">
               <FiCheckCircle className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
               <span>
-                <strong>Waste Producer Portal:</strong> List manufacturing by-products (Polymers, Fly Ash, Slag, Metal Scrap, Sludge), receive automated market valuation, find nearby circular buyers, and generate certified ESG carbon avoidance reports.
+                <strong>Seller Portal:</strong> List manufacturing by-products (Polymers, Fly Ash, Slag, Metal Scrap), receive automated market matching, negotiate trades with verified recyclers, and calculate avoided CO₂e metrics.
+              </span>
+            </div>
+          ) : accountType === 'buyer' ? (
+            <div className="flex items-start gap-2.5">
+              <FiCheckCircle className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+              <span>
+                <strong>Buyer Portal:</strong> Post material requirements, discover compatible byproduct suppliers, send direct exchange requests, review freight routes, and secure sustainable circular feedstock.
               </span>
             </div>
           ) : (
             <div className="flex items-start gap-2.5">
-              <FiCheckCircle className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+              <FiCheckCircle className="w-4 h-4 text-slate-800 shrink-0 mt-0.5" />
               <span>
-                <strong>Waste Recycler / Buyer Portal:</strong> Specify required secondary feedstock criteria, search verified industrial listings, run GIS freight route optimizations, and secure predictable recurring raw material streams.
+                <strong>Buyer & Seller Dual Account:</strong> Full access to both Seller (byproduct listing & sales) and Buyer (sourcing requirements & procurement) dashboards with seamless header role switching.
               </span>
             </div>
           )}

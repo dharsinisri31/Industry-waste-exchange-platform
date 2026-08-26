@@ -29,6 +29,9 @@ import Profile from '../pages/Profile';
 import Settings from '../pages/Settings';
 import ResourcePassport from '../pages/ResourcePassport';
 import WasteJourneyTracker from '../pages/WasteJourneyTracker';
+import PaymentPage from '../pages/PaymentPage';
+import PaymentHistory from '../pages/PaymentHistory';
+import DisputesPage from '../pages/DisputesPage';
 
 // Dedicated Modular Admin Pages
 import AdminDashboard from '../pages/admin/AdminDashboard';
@@ -76,6 +79,10 @@ const AppRoutes = () => {
         <Route path="/compliance-manager" element={<Documents />} />
         <Route path="/resource-passport/:id" element={<ResourcePassport />} />
         <Route path="/waste-journey/:id" element={<WasteJourneyTracker />} />
+        <Route path="/payment/:orderId" element={<PaymentPage />} />
+        <Route path="/payments" element={<PaymentHistory />} />
+        <Route path="/payments/history" element={<PaymentHistory />} />
+        <Route path="/disputes" element={<DisputesPage />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
@@ -103,6 +110,8 @@ const AppRoutes = () => {
         <Route path="/admin/requirements" element={<AdminMaterialRequirements />} />
         <Route path="/admin/material-requirements" element={<AdminMaterialRequirements />} />
         <Route path="/admin/exchanges" element={<AdminExchanges />} />
+        <Route path="/admin/payments" element={<PaymentHistory />} />
+        <Route path="/admin/disputes" element={<DisputesPage />} />
         <Route path="/admin/ai" element={<AdminSmartMatching />} />
         <Route path="/admin/smart-matching" element={<AdminSmartMatching />} />
         <Route path="/admin/analytics" element={<AdminAnalytics />} />

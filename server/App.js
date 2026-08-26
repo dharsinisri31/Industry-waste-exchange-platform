@@ -28,6 +28,10 @@ const buyerRequirementRoutes = require('./routes/buyerRequirementRoutes');
 const traceabilityRoutes = require('./routes/traceabilityRoutes');
 const auctionRoutes = require('./routes/auctionRoutes');
 const demoSeedRoutes = require('./routes/demoSeedRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+const reviewRoutes = require('./routes/reviewRoutes');
+const disputeRoutes = require('./routes/disputeRoutes');
+const documentRoutes = require('./routes/documentRoutes');
 
 const app = express();
 
@@ -68,6 +72,10 @@ app.use('/api/buyer-requirements', buyerRequirementRoutes);
 app.use('/api/traceability', traceabilityRoutes);
 app.use('/api/auction', auctionRoutes);
 app.use('/api/demo', demoSeedRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/disputes', disputeRoutes);
+app.use('/api/documents', documentRoutes);
 
 // Error Middlewares
 app.use(notFound);

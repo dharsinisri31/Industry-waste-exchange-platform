@@ -9,7 +9,8 @@ const {
   submitPartnerRating,
   updateLogisticsStatus,
   confirmDemoPayment,
-  confirmRecycling
+  confirmRecycling,
+  updateOrderStatus
 } = require('../controllers/traceabilityController');
 const { protect, isAdmin } = require('../middleware/authMiddleware');
 
@@ -18,6 +19,7 @@ router.get('/:batchOrExchangeId', getTraceability);
 
 // Exchange detail and operations
 router.get('/exchanges/:id', protect, getExchangeById);
+router.patch('/exchanges/:id/order-status', protect, updateOrderStatus);
 router.post('/exchanges/:id/documents', protect, uploadExchangeDocument);
 router.patch('/exchanges/:id/documents/:docId/verify', protect, isAdmin, verifyExchangeDocument);
 router.post('/exchanges/:id/weighment', protect, recordWeighment);

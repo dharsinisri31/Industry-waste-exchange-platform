@@ -5,6 +5,12 @@ import AdminLayout from '../../layouts/AdminLayout';
 import Loader from '../../components/Loader';
 import { formatINR } from '../../utils/formatINR';
 import { 
+  STANDARDIZED_STATUSES, 
+  normalizeStatus, 
+  STATUS_LABELS, 
+  getStatusBadgeStyle 
+} from '../../utils/statusUtils';
+import { 
   FiTrendingUp, FiSearch, FiCheckCircle, 
   FiTruck, FiClock, FiCheck, FiX, FiRefreshCw, FiEye, FiShield, FiMapPin, FiCalendar 
 } from 'react-icons/fi';
@@ -51,39 +57,20 @@ export default function AdminExchanges() {
     }
   };
 
-  function normalizeStatus(s) {
-    const raw = (s || 'requested').toLowerCase();
-    if (raw === 'pending' || raw === 'requested') return 'Requested';
-    if (raw === 'accepted' || raw === 'approved' || raw === 'confirmed') return 'Confirmed';
-    if (raw === 'route_planned' || raw === 'pickup_scheduled') return 'Pickup Scheduled';
-    if (raw === 'in_transit') return 'In Transit';
-    if (raw === 'delivered') return 'Delivered';
-    if (raw === 'completed') return 'Completed';
-    if (raw === 'cancelled') return 'Cancelled';
-    return raw.charAt(0).toUpperCase() + raw.slice(1);
-  }
-
-  function getStatusStyle(status) {
-    const norm = normalizeStatus(status);
-    if (norm === 'Completed') return 'bg-[#EAF8F2] text-[#009B6B] border border-[#009B6B]/30';
-    if (norm === 'In Transit' || norm === 'Pickup Scheduled') return 'bg-blue-100 text-blue-800 border border-blue-200';
-    if (norm === 'Confirmed' || norm === 'Delivered') return 'bg-teal-100 text-teal-800 border border-teal-200';
-    if (norm === 'Cancelled') return 'bg-red-100 text-red-800 border border-red-200';
-    return 'bg-amber-100 text-amber-900 border border-amber-200';
-  }
-
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
-      const norm = normalizeStatus(t.status);
+      const norm = normalizeStatus(t.normalizedStatus || t.orderStatus || t.status);
       
       // 1. Search Query
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         const matches = 
           (t.exchangeId || '').toLowerCase().includes(q) ||
+          (t.orderId || '').toLowerCase().includes(q) ||
           (t.batchId || '').toLowerCase().includes(q) ||
           (t._id || '').toLowerCase().includes(q) ||
           (t.waste?.name || '').toLowerCase().includes(q) ||
+          (t.waste?.category || '').toLowerCase().includes(q) ||
           (t.seller?.companyName || t.seller?.email || '').toLowerCase().includes(q) ||
           (t.buyer?.companyName || t.buyer?.email || '').toLowerCase().includes(q);
         if (!matches) return false;
@@ -91,7 +78,8 @@ export default function AdminExchanges() {
 
       // 2. Status Filter
       if (statusFilter !== 'All') {
-        if (norm !== statusFilter) return false;
+        const targetNorm = normalizeStatus(statusFilter);
+        if (norm !== targetNorm) return false;
       }
 
       return true;
@@ -99,16 +87,16 @@ export default function AdminExchanges() {
   }, [transactions, searchQuery, statusFilter]);
 
   const timelineSteps = [
-    { key: 'Requested', label: 'Requested' },
-    { key: 'Confirmed', label: 'Confirmed' },
-    { key: 'Pickup Scheduled', label: 'Pickup Scheduled' },
-    { key: 'In Transit', label: 'In Transit' },
-    { key: 'Delivered', label: 'Delivered' },
-    { key: 'Completed', label: 'Completed' }
+    { key: 'PENDING', label: 'Pending' },
+    { key: 'ACCEPTED', label: 'Accepted' },
+    { key: 'PROCESSING', label: 'Processing' },
+    { key: 'IN_TRANSIT', label: 'In Transit' },
+    { key: 'DELIVERED', label: 'Delivered' },
+    { key: 'COMPLETED', label: 'Completed' }
   ];
 
-  const getStepIndex = (status) => {
-    const norm = normalizeStatus(status);
+  const getStepIndex = (rawStatus) => {
+    const norm = normalizeStatus(rawStatus);
     const idx = timelineSteps.findIndex(s => s.key === norm);
     return idx >= 0 ? idx : 0;
   };
@@ -169,13 +157,13 @@ export default function AdminExchanges() {
                 className="w-full px-3.5 py-2.5 rounded-2xl border border-[#DDE7E2] text-xs text-[#12233F] focus:outline-none focus:border-[#009B6B] font-bold bg-[#F6F8F7] cursor-pointer"
               >
                 <option value="All">Status: All Stages</option>
-                <option value="Requested">Requested</option>
-                <option value="Confirmed">Confirmed</option>
-                <option value="Pickup Scheduled">Pickup Scheduled</option>
-                <option value="In Transit">In Transit</option>
-                <option value="Delivered">Delivered</option>
-                <option value="Completed">Completed</option>
-                <option value="Cancelled">Cancelled</option>
+                <option value="PENDING">Pending</option>
+                <option value="ACCEPTED">Accepted</option>
+                <option value="PROCESSING">Processing</option>
+                <option value="IN_TRANSIT">In Transit</option>
+                <option value="DELIVERED">Delivered</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="CANCELLED">Cancelled</option>
               </select>
             </div>
           </div>
@@ -205,12 +193,12 @@ export default function AdminExchanges() {
                 </thead>
                 <tbody className="divide-y divide-[#DDE7E2]/60 font-medium text-[#12233F]">
                   {filteredTransactions.map((t) => {
-                    const normStatus = normalizeStatus(t.status);
+                    const normStatus = normalizeStatus(t.normalizedStatus || t.orderStatus || t.status);
 
                     return (
                       <tr key={t._id} className="hover:bg-[#F6F8F7]/80 transition-colors">
                         <td className="py-4 px-4 font-mono font-bold text-[#12233F]">
-                          {t.exchangeId || `#${t._id.slice(-6)}`}
+                          {t.exchangeId || t.orderId || `#${t._id.slice(-6)}`}
                         </td>
                         <td className="py-4 px-4">
                           <div className="font-bold text-[#12233F]">{t.seller?.companyName || t.seller?.email || 'Seller Plant'}</div>
@@ -222,14 +210,14 @@ export default function AdminExchanges() {
                           {t.waste?.name || 'Secondary Material'}
                         </td>
                         <td className="py-4 px-4 font-bold text-[#12233F]">
-                          {t.quantity || t.waste?.quantity || 5000} {t.unit || 'kg'}
+                          {(t.quantity || t.waste?.quantity || 0).toLocaleString()} {t.unit || 'kg'}
                         </td>
                         <td className="py-4 px-4 font-extrabold text-[#12233F]">
-                          {formatINR(t.totalPrice || 125000)}
+                          {formatINR(t.totalPrice || 0)}
                         </td>
                         <td className="py-4 px-4">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${getStatusStyle(t.status)}`}>
-                            {normStatus}
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${getStatusBadgeStyle(normStatus)}`}>
+                            {STATUS_LABELS[normStatus] || normStatus}
                           </span>
                         </td>
                         <td className="py-4 px-4 text-[#5F6B7A] text-[11px]">
@@ -272,10 +260,10 @@ export default function AdminExchanges() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="text-xl font-black text-[#12233F]">
-                      Exchange {viewExchange.exchangeId || `#${viewExchange._id.slice(-6)}`}
+                      Exchange {viewExchange.exchangeId || viewExchange.orderId || `#${viewExchange._id.slice(-6)}`}
                     </h2>
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${getStatusStyle(viewExchange.status)}`}>
-                      {normalizeStatus(viewExchange.status)}
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${getStatusBadgeStyle(viewExchange.normalizedStatus || viewExchange.orderStatus || viewExchange.status)}`}>
+                      {STATUS_LABELS[normalizeStatus(viewExchange.normalizedStatus || viewExchange.orderStatus || viewExchange.status)]}
                     </span>
                   </div>
                   <span className="text-xs text-[#009B6B] font-extrabold uppercase mt-0.5 block">
@@ -299,7 +287,7 @@ export default function AdminExchanges() {
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 pt-2">
                   {timelineSteps.map((step, idx) => {
-                    const currentIndex = getStepIndex(viewExchange.status);
+                    const currentIndex = getStepIndex(viewExchange.normalizedStatus || viewExchange.orderStatus || viewExchange.status);
                     const isPassed = idx <= currentIndex;
                     const isCurrent = idx === currentIndex;
 
@@ -327,22 +315,38 @@ export default function AdminExchanges() {
                 <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
                   <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Seller Facility</span>
                   <div className="font-bold text-[#12233F]">{viewExchange.seller?.companyName || viewExchange.seller?.email || 'Seller Plant'}</div>
+                  <span className="text-[11px] text-gray-500">{viewExchange.seller?.email}</span>
                 </div>
 
                 <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
                   <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Buyer Facility</span>
                   <div className="font-bold text-[#12233F]">{viewExchange.buyer?.companyName || viewExchange.buyer?.email || 'Buyer Plant'}</div>
+                  <span className="text-[11px] text-gray-500">{viewExchange.buyer?.email}</span>
                 </div>
 
                 <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
                   <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Agreed Quantity</span>
-                  <div className="font-bold text-[#12233F]">{viewExchange.quantity || viewExchange.waste?.quantity || 5000} {viewExchange.unit || 'kg'}</div>
+                  <div className="font-bold text-[#12233F]">{(viewExchange.quantity || viewExchange.waste?.quantity || 0).toLocaleString()} {viewExchange.unit || 'kg'}</div>
                 </div>
 
                 <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
                   <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Total Trade Value</span>
-                  <div className="font-extrabold text-[#009B6B]">{formatINR(viewExchange.totalPrice || 125000)}</div>
+                  <div className="font-extrabold text-[#009B6B]">{formatINR(viewExchange.totalPrice || 0)}</div>
                 </div>
+
+                {viewExchange.invoiceNumber && (
+                  <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
+                    <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Invoice Reference</span>
+                    <div className="font-mono font-bold text-gray-900">{viewExchange.invoiceNumber}</div>
+                  </div>
+                )}
+
+                {viewExchange.paymentStatus && (
+                  <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
+                    <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Payment Status</span>
+                    <div className="font-bold text-emerald-800">{viewExchange.paymentStatus}</div>
+                  </div>
+                )}
               </div>
 
               {/* Status Update Quick Buttons */}
@@ -351,17 +355,25 @@ export default function AdminExchanges() {
                   Update Operational Status:
                 </span>
                 <div className="flex flex-wrap gap-2">
-                  {['Requested', 'Confirmed', 'Pickup Scheduled', 'In Transit', 'Delivered', 'Completed', 'Cancelled'].map((statusKey) => (
+                  {[
+                    { key: 'PENDING', label: 'Pending' },
+                    { key: 'ACCEPTED', label: 'Accepted' },
+                    { key: 'PROCESSING', label: 'Processing' },
+                    { key: 'IN_TRANSIT', label: 'In Transit' },
+                    { key: 'DELIVERED', label: 'Delivered' },
+                    { key: 'COMPLETED', label: 'Completed' },
+                    { key: 'CANCELLED', label: 'Cancelled' }
+                  ].map((s) => (
                     <button
-                      key={statusKey}
-                      onClick={() => handleUpdateStatus(viewExchange._id, statusKey.toLowerCase().replace(/ /g, '_'))}
+                      key={s.key}
+                      onClick={() => handleUpdateStatus(viewExchange._id, s.key)}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                        normalizeStatus(viewExchange.status) === statusKey
+                        normalizeStatus(viewExchange.normalizedStatus || viewExchange.orderStatus || viewExchange.status) === s.key
                           ? 'bg-[#009B6B] text-white border-[#009B6B]'
                           : 'bg-[#F6F8F7] border-[#DDE7E2] text-[#12233F] hover:bg-[#EAF8F2] hover:text-[#009B6B]'
                       }`}
                     >
-                      {statusKey}
+                      {s.label}
                     </button>
                   ))}
                 </div>

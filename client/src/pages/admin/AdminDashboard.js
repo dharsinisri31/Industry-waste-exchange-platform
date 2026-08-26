@@ -4,6 +4,7 @@ import API from '../../services/authAPI';
 import AdminLayout from '../../layouts/AdminLayout';
 import Loader from '../../components/Loader';
 import { formatINR } from '../../utils/formatINR';
+import { normalizeStatus, STATUS_LABELS, getStatusBadgeStyle } from '../../utils/statusUtils';
 import { 
   ResponsiveContainer, AreaChart, Area, LineChart, Line, 
   PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid 
@@ -47,99 +48,43 @@ export default function AdminDashboard() {
   }, []);
 
   const metrics = summaryData?.metrics || summaryData?.summary || {
-    totalIndustries: 27,
-    activeListingsCount: 13,
-    activeRequirementsCount: 8,
-    activeExchangesCount: 3,
-    completedTransactionsCount: 24,
-    totalTransactionValueInr: 1280000,
-    totalWasteDivertedTons: 52.2,
-    totalCarbonSavedTons: 67.8,
-    pendingActionsCount: 23
+    totalIndustries: 0,
+    activeListingsCount: 0,
+    activeRequirementsCount: 0,
+    activeExchangesCount: 0,
+    totalExchanges: 0,
+    completedTransactionsCount: 0,
+    totalTransactionValueInr: 0,
+    totalWasteDivertedTons: 0,
+    totalCarbonSavedTons: 0,
+    pendingActionsCount: 0
   };
 
-  // Supply vs Demand Data (EcoLink Green #009E73 vs Deep Navy #172B3A)
-  const supplyVsDemand = summaryData?.supplyVsDemand || [
-    { material: 'PET Plastic', supplyKg: 7050, demandKg: 2550, status: 'Supply Surplus' },
-    { material: 'Plastic Scrap', supplyKg: 8500, demandKg: 6200, status: 'Supply Surplus' },
-    { material: 'Metal Scrap', supplyKg: 14550, demandKg: 10000, status: 'Supply Surplus' },
-    { material: 'Fly Ash', supplyKg: 25000, demandKg: 18000, status: 'Supply Surplus' },
-    { material: 'Textile Scrap', supplyKg: 4200, demandKg: 5600, status: 'Demand Shortage' }
-  ];
+  // Supply vs Demand Data from API
+  const supplyVsDemand = summaryData?.supplyVsDemand || [];
 
-  // Material Distribution Data (Normalized Parent Categories)
-  const materialDistribution = summaryData?.materialDistribution || [
-    { category: 'Plastic', quantity: 8500, percentage: 16, color: '#009E73' },
-    { category: 'Metal', quantity: 14550, percentage: 28, color: '#0284c7' },
-    { category: 'Fly Ash', quantity: 25000, percentage: 48, color: '#475569' },
-    { category: 'Textile', quantity: 4200, percentage: 2, color: '#d97706' },
-    { category: 'Glass', quantity: 1500, percentage: 3, color: '#0d9488' },
-    { category: 'Other', quantity: 1000, percentage: 2, color: '#94a3b8' }
-  ];
+  // Material Distribution Data from API
+  const materialDistribution = summaryData?.materialDistribution || [];
 
-  // Monthly Activity Timeline
-  const monthlyActivity = summaryData?.monthlyActivity || [
-    { month: 'Jan', exchanges: 3, volumeKg: 8500, tradeValueInr: 145000 },
-    { month: 'Feb', exchanges: 5, volumeKg: 14200, tradeValueInr: 230000 },
-    { month: 'Mar', exchanges: 8, volumeKg: 22000, tradeValueInr: 390000 },
-    { month: 'Apr', exchanges: 11, volumeKg: 31500, tradeValueInr: 520000 },
-    { month: 'May', exchanges: 16, volumeKg: 46000, tradeValueInr: 780000 },
-    { month: 'Jun', exchanges: 20, volumeKg: 58000, tradeValueInr: 960000 },
-    { month: 'Jul', exchanges: 24, volumeKg: 64000, tradeValueInr: 1120000 },
-    { month: 'Aug', exchanges: 29, volumeKg: 72000, tradeValueInr: 1280000 }
-  ];
+  // Monthly Activity Timeline from API
+  const monthlyActivity = summaryData?.monthlyActivity || [];
 
-  // Exchange Statuses with Semantic Colors
-  const exchangeStatusData = [
-    { name: 'Pending', count: 2, color: '#f59e0b' },
-    { name: 'Accepted', count: 1, color: '#3b82f6' },
-    { name: 'Processing', count: 2, color: '#6366f1' },
-    { name: 'In Transit', count: 1, color: '#8b5cf6' },
-    { name: 'Delivered', count: 1, color: '#0d9488' },
-    { name: 'Completed', count: 24, color: '#009E73' },
-    { name: 'Cancelled', count: 0, color: '#ef4444' }
+  // Standardized Exchange Statuses derived directly from the Single Source of Truth
+  const exchangeStatusData = summaryData?.exchangeStatusData || [
+    { name: 'Pending', count: summaryData?.exchangeStatusCounts?.pending || 0, color: '#f59e0b', key: 'PENDING' },
+    { name: 'Accepted', count: summaryData?.exchangeStatusCounts?.accepted || 0, color: '#3b82f6', key: 'ACCEPTED' },
+    { name: 'Processing', count: summaryData?.exchangeStatusCounts?.processing || 0, color: '#6366f1', key: 'PROCESSING' },
+    { name: 'In Transit', count: summaryData?.exchangeStatusCounts?.inTransit || 0, color: '#8b5cf6', key: 'IN_TRANSIT' },
+    { name: 'Delivered', count: summaryData?.exchangeStatusCounts?.delivered || 0, color: '#0d9488', key: 'DELIVERED' },
+    { name: 'Completed', count: summaryData?.exchangeStatusCounts?.completed || 0, color: '#009E73', key: 'COMPLETED' },
+    { name: 'Cancelled', count: summaryData?.exchangeStatusCounts?.cancelled || 0, color: '#ef4444', key: 'CANCELLED' }
   ];
-  const totalStatusCount = exchangeStatusData.reduce((sum, s) => sum + s.count, 0);
+  
+  // Total Exchanges = Pending + Accepted + Processing + In Transit + Delivered + Completed + Cancelled
+  const totalStatusCount = exchangeStatusData.reduce((sum, s) => sum + (Number(s.count) || 0), 0);
 
-  // Recent Exchanges
-  const recentExchanges = [
-    {
-      partner: 'Apex Plastics Pvt. Ltd.',
-      initials: 'AP',
-      material: 'PET Plastic Scrap',
-      quantity: '2,500 kg',
-      value: 125000,
-      status: 'In Transit',
-      date: '18 Aug'
-    },
-    {
-      partner: 'EcoMetal Recyclers',
-      initials: 'EM',
-      material: 'HMS Foundry Scrap',
-      quantity: '12,000 kg',
-      value: 864000,
-      status: 'Completed',
-      date: '17 Aug'
-    },
-    {
-      partner: 'Southern Thermal Ash',
-      initials: 'ST',
-      material: 'Class F Fly Ash',
-      quantity: '25,000 kg',
-      value: 62500,
-      status: 'Completed',
-      date: '15 Aug'
-    },
-    {
-      partner: 'GreenPoly Industries',
-      initials: 'GP',
-      material: 'HDPE Regrind Flakes',
-      quantity: '4,500 kg',
-      value: 171000,
-      status: 'Delivered',
-      date: '14 Aug'
-    }
-  ];
+  // Recent Exchanges from MongoDB
+  const recentExchanges = summaryData?.recentExchanges || [];
 
   // Action Required Task Items
   const actionItems = [
@@ -652,28 +597,33 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium text-gray-800">
-                      {recentExchanges.map((ex, i) => (
-                        <tr key={i} className="hover:bg-gray-50/80 transition-colors">
-                          <td className="py-2.5 px-3 flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-[10px] shrink-0">
-                              {ex.initials}
-                            </div>
-                            <span className="font-bold text-[#172B3A] truncate max-w-[140px]">{ex.partner}</span>
+                      {recentExchanges.length === 0 ? (
+                        <tr>
+                          <td colSpan="6" className="text-center py-8 text-gray-400 font-medium">
+                            No exchange transactions recorded yet.
                           </td>
-                          <td className="py-2.5 px-3 text-emerald-900 font-semibold">{ex.material}</td>
-                          <td className="py-2.5 px-3 font-mono">{ex.quantity}</td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-gray-900">{formatINR(ex.value)}</td>
-                          <td className="py-2.5 px-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              ex.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' :
-                              ex.status === 'In Transit' ? 'bg-purple-100 text-purple-800' : 'bg-teal-100 text-teal-800'
-                            }`}>
-                              {ex.status}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 text-right text-gray-400 font-mono text-[11px]">{ex.date}</td>
                         </tr>
-                      ))}
+                      ) : (
+                        recentExchanges.map((ex, i) => (
+                          <tr key={i} className="hover:bg-gray-50/80 transition-colors">
+                            <td className="py-2.5 px-3 flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-[10px] shrink-0">
+                                {ex.initials}
+                              </div>
+                              <span className="font-bold text-[#172B3A] truncate max-w-[140px]">{ex.partner}</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-emerald-900 font-semibold">{ex.material}</td>
+                            <td className="py-2.5 px-3 font-mono">{ex.quantity}</td>
+                            <td className="py-2.5 px-3 font-mono font-bold text-gray-900">{formatINR(ex.value)}</td>
+                            <td className="py-2.5 px-3">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${getStatusBadgeStyle(ex.rawStatus || ex.status)}`}>
+                                {ex.status}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-gray-400 font-mono text-[11px]">{ex.date}</td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>

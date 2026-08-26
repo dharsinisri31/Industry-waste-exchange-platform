@@ -45,10 +45,32 @@ export default function AdminSustainability() {
               Sustainability Impact
             </h1>
             <p className="text-xs text-[#5F6B7A] font-medium mt-1">
-              Track environmental impact generated through circular material exchanges across the network.
+              Track verified environmental impact generated through completed circular material exchanges across the network.
             </p>
           </div>
+
+          <button
+            onClick={fetchSustainabilityData}
+            className="p-2.5 rounded-xl border border-[#DDE7E2] bg-white hover:bg-[#F6F8F7] text-[#12233F] transition-all cursor-pointer flex items-center gap-2 text-xs font-bold shadow-2xs"
+            title="Refresh Metrics"
+          >
+            <FiRefreshCw className="w-4 h-4 text-[#009B6B]" />
+            <span>Refresh</span>
+          </button>
         </div>
+
+        {/* Empty State Banner if no completed exchanges */}
+        {metrics.completedTransactionsCount === 0 && (
+          <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-2xl text-xs text-emerald-950 flex items-center gap-3">
+            <FiShield className="w-5 h-5 text-emerald-700 shrink-0" />
+            <div>
+              <span className="font-bold block">Awaiting First Completed Exchange:</span>
+              <span className="text-emerald-800">
+                Sustainability metrics are dynamically computed from verified <b>COMPLETED</b> exchange transactions in MongoDB. Once exchanges are delivered and confirmed, avoided CO₂e and landfill diversion metrics will update automatically.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* 4 Primary Impact Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

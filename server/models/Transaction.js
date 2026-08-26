@@ -6,6 +6,10 @@ const transactionSchema = new mongoose.Schema({
     unique: true,
     sparse: true
   },
+  orderId: {
+    type: String,
+    sparse: true
+  },
   batchId: {
     type: String,
     sparse: true
@@ -33,6 +37,12 @@ const transactionSchema = new mongoose.Schema({
     type: String,
     default: 'kg'
   },
+  unitPrice: {
+    type: Number
+  },
+  wasteCost: {
+    type: Number
+  },
   totalPrice: {
     type: Number,
     required: true
@@ -44,13 +54,54 @@ const transactionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'requested', 'negotiation', 'accepted', 'approved', 'in_transit', 'delivered', 'received', 'processed', 'completed', 'cancelled', 'disputed'],
-    default: 'pending'
+    enum: [
+      'pending', 'requested', 'negotiation', 'accepted', 'approved', 
+      'in_transit', 'delivered', 'received', 'processed', 'completed', 
+      'cancelled', 'disputed',
+      'order_placed', 'payment_confirmed', 'seller_accepted', 
+      'waste_prepared', 'pickup_scheduled'
+    ],
+    default: 'order_placed'
   },
+  orderStatus: {
+    type: String,
+    enum: [
+      'Order Placed',
+      'Payment Confirmed',
+      'Seller Accepted',
+      'Waste Prepared',
+      'Pickup Scheduled',
+      'In Transit',
+      'Delivered',
+      'Completed',
+      'Cancelled',
+      'Disputed'
+    ],
+    default: 'Order Placed'
+  },
+  statusHistory: [{
+    status: { type: String, required: true },
+    title: { type: String },
+    note: { type: String },
+    actor: { type: String },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    changedByName: { type: String },
+    timestamp: { type: Date, default: Date.now }
+  }],
   paymentStatus: {
     type: String,
-    enum: ['pending', 'initiated', 'confirmed', 'settlement_pending', 'settled'],
+    enum: ['pending', 'paid', 'failed', 'refunded', 'initiated', 'confirmed', 'settlement_pending', 'settled', 'Pending', 'Paid', 'Failed', 'Refunded'],
     default: 'pending'
+  },
+  paymentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Payment'
+  },
+  transactionId: {
+    type: String
+  },
+  invoiceNumber: {
+    type: String
   },
   paymentAmount: {
     type: Number,
@@ -58,7 +109,7 @@ const transactionSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    default: 'Industrial Escrow (Demo)'
+    default: 'UPI'
   },
   distanceKm: {
     type: Number,
@@ -75,6 +126,13 @@ const transactionSchema = new mongoose.Schema({
   transportEmissionsKg: {
     type: Number,
     default: 0
+  },
+  completedAt: {
+    type: Date
+  },
+  dispute: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Dispute'
   },
   weighment: {
     sellerDeclaredWeight: { type: Number, default: 0 },
@@ -106,7 +164,17 @@ const transactionSchema = new mongoose.Schema({
     name: String,
     docType: { 
       type: String, 
-      enum: ['Invoice', 'Weighment Slip', 'Transport Document', 'Material Quality Report', 'Recycling Certificate', 'Compliance Document', 'Delivery Proof', 'Other'] 
+      enum: [
+        'Quality Report',
+        'Material Quality Report',
+        'Invoice',
+        'Transport Document',
+        'Weighment Slip',
+        'Recycling Certificate',
+        'Compliance Document',
+        'Delivery Proof',
+        'Other'
+      ] 
     },
     url: String,
     uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -156,5 +224,10 @@ const transactionSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+transactionSchema.index({ buyer: 1, createdAt: -1 });
+transactionSchema.index({ seller: 1, createdAt: -1 });
+transactionSchema.index({ orderStatus: 1 });
+transactionSchema.index({ paymentStatus: 1 });
 
 module.exports = mongoose.model('Transaction', transactionSchema);

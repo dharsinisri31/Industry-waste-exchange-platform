@@ -4,6 +4,8 @@ const Waste = require('../models/Waste');
 const Transaction = require('../models/Transaction');
 const Notification = require('../models/Notification');
 const BuyerRequirement = require('../models/BuyerRequirement');
+const { STANDARDIZED_STATUSES, normalizeStatus, STATUS_LABELS, STATUS_COLORS } = require('../utils/statusUtils');
+const { calculateAvoidedCO2, calculateVirginMaterialReplaced } = require('../utils/sustainabilityUtils');
 
 // In-memory platform configuration store with persistent defaults
 let platformSettings = {
@@ -45,9 +47,9 @@ const getDashboardSummary = async (req, res) => {
       Industry.countDocuments({ businessRole: 'sender' }),
       Industry.countDocuments({ businessRole: 'receiver' }),
       Industry.countDocuments({ businessRole: 'both' }),
-      Waste.find().populate('uploader', 'companyName email').sort({ createdAt: -1 }),
-      BuyerRequirement.find().populate('buyer', 'companyName email').sort({ createdAt: -1 }),
-      Transaction.find().populate('seller', 'email').populate('buyer', 'email').populate('waste', 'name category price quantity unit').sort({ createdAt: -1 }),
+      Waste.find().populate('uploader', 'companyName email city').sort({ createdAt: -1 }),
+      BuyerRequirement.find().populate('buyer', 'companyName email city').sort({ createdAt: -1 }),
+      Transaction.find().populate('seller', 'companyName email').populate('buyer', 'companyName email').populate('waste', 'name category price quantity unit city').sort({ createdAt: -1 }),
       Industry.find().populate('user', 'email isVerified')
     ]);
 
@@ -58,26 +60,65 @@ const getDashboardSummary = async (req, res) => {
 
     const activeRequirements = allRequirements.filter(r => r.status === 'active');
 
-    const completedTransactions = allTransactions.filter(t => t.status === 'completed');
-    const activeTransactions = allTransactions.filter(t => t.status === 'pending' || t.status === 'in_transit' || t.status === 'accepted' || t.status === 'route_planned');
-    const totalTransactionValue = allTransactions.reduce((sum, t) => sum + (t.totalPrice || 0), 0);
-    const totalCarbonSavedKg = completedTransactions.reduce((sum, t) => sum + (t.carbonSavedKg || ((t.waste?.quantity || 100) * 1.5)), 0) || (allWastes.reduce((sum, w) => sum + (w.quantity || 0), 0) * 1.5);
-    const totalTransportCo2Kg = allTransactions.reduce((sum, t) => sum + (t.co2EmissionsKg || t.transportEmissionsKg || 28), 0);
-    const totalWasteDivertedKg = allWastes.reduce((sum, w) => sum + (w.quantity || 0), 0);
+    // 1. Standardized Exchange Status Counts (SINGLE SOURCE OF TRUTH)
+    const exchangeStatusCounts = {
+      pending: 0,
+      accepted: 0,
+      processing: 0,
+      inTransit: 0,
+      delivered: 0,
+      completed: 0,
+      cancelled: 0
+    };
+
+    allTransactions.forEach(t => {
+      const norm = normalizeStatus(t.orderStatus || t.status);
+      if (norm === STANDARDIZED_STATUSES.PENDING) exchangeStatusCounts.pending++;
+      else if (norm === STANDARDIZED_STATUSES.ACCEPTED) exchangeStatusCounts.accepted++;
+      else if (norm === STANDARDIZED_STATUSES.PROCESSING) exchangeStatusCounts.processing++;
+      else if (norm === STANDARDIZED_STATUSES.IN_TRANSIT) exchangeStatusCounts.inTransit++;
+      else if (norm === STANDARDIZED_STATUSES.DELIVERED) exchangeStatusCounts.delivered++;
+      else if (norm === STANDARDIZED_STATUSES.COMPLETED) exchangeStatusCounts.completed++;
+      else if (norm === STANDARDIZED_STATUSES.CANCELLED) exchangeStatusCounts.cancelled++;
+    });
+
+    const totalExchanges = 
+      exchangeStatusCounts.pending + 
+      exchangeStatusCounts.accepted + 
+      exchangeStatusCounts.processing + 
+      exchangeStatusCounts.inTransit + 
+      exchangeStatusCounts.delivered + 
+      exchangeStatusCounts.completed + 
+      exchangeStatusCounts.cancelled;
+
+    const exchangeStatusData = [
+      { name: 'Pending', count: exchangeStatusCounts.pending, color: STATUS_COLORS.PENDING, key: 'PENDING' },
+      { name: 'Accepted', count: exchangeStatusCounts.accepted, color: STATUS_COLORS.ACCEPTED, key: 'ACCEPTED' },
+      { name: 'Processing', count: exchangeStatusCounts.processing, color: STATUS_COLORS.PROCESSING, key: 'PROCESSING' },
+      { name: 'In Transit', count: exchangeStatusCounts.inTransit, color: STATUS_COLORS.IN_TRANSIT, key: 'IN_TRANSIT' },
+      { name: 'Delivered', count: exchangeStatusCounts.delivered, color: STATUS_COLORS.DELIVERED, key: 'DELIVERED' },
+      { name: 'Completed', count: exchangeStatusCounts.completed, color: STATUS_COLORS.COMPLETED, key: 'COMPLETED' },
+      { name: 'Cancelled', count: exchangeStatusCounts.cancelled, color: STATUS_COLORS.CANCELLED, key: 'CANCELLED' }
+    ];
+
+    // 2. Sustainability Impact (from COMPLETED exchanges ONLY)
+    const completedTransactions = allTransactions.filter(t => normalizeStatus(t.orderStatus || t.status) === STANDARDIZED_STATUSES.COMPLETED);
+    const completedTransactionsCount = completedTransactions.length;
+    
+    const totalWasteDivertedKg = completedTransactions.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
+    const totalCarbonSavedKg = completedTransactions.reduce((sum, t) => {
+      return sum + calculateAvoidedCO2(t.quantity, t.waste?.name, t.waste?.category);
+    }, 0);
+    const virginMaterialReplacedKg = calculateVirginMaterialReplaced(totalWasteDivertedKg);
+
+    const totalWasteDivertedTons = parseFloat((totalWasteDivertedKg / 1000).toFixed(2));
+    const totalCarbonSavedTons = parseFloat((totalCarbonSavedKg / 1000).toFixed(2));
+    const virginMaterialReplacedTons = parseFloat((virginMaterialReplacedKg / 1000).toFixed(2));
+
+    const totalTransactionValue = allTransactions.reduce((sum, t) => sum + (Number(t.totalPrice) || 0), 0);
+    const totalTransportCo2Kg = allTransactions.reduce((sum, t) => sum + (Number(t.co2EmissionsKg || t.transportEmissionsKg) || 0), 0);
 
     const pendingVerifications = unverifiedIndustries.filter(ind => ind.user && !ind.user.isVerified);
-
-    // Exchange Status Breakdown
-    const exchangeStatusCounts = {
-      requested: allTransactions.filter(t => t.status === 'pending' || t.status === 'requested').length,
-      accepted: allTransactions.filter(t => t.status === 'accepted').length,
-      routePlanned: allTransactions.filter(t => t.status === 'route_planned').length,
-      inTransit: allTransactions.filter(t => t.status === 'in_transit').length,
-      delivered: allTransactions.filter(t => t.status === 'delivered').length,
-      completed: completedTransactions.length,
-      cancelled: allTransactions.filter(t => t.status === 'cancelled').length,
-      disputed: allTransactions.filter(t => t.status === 'disputed').length
-    };
 
     // Dynamic Supply vs Demand aggregated by material
     const materialMap = {};
@@ -124,59 +165,81 @@ const getDashboardSummary = async (req, res) => {
         quantity: `${r.quantity || 500} ${r.unit || 'kg'}/${r.frequency || 'month'}`,
         status: 'Active'
       })),
-      ...allTransactions.slice(0, 2).map(t => ({
-        time: '2 hours ago',
-        industry: t.seller?.companyName || t.seller?.email || 'Seller Factory',
-        activity: 'Exchange Agreement',
-        material: t.waste?.name || 'Secondary Material',
-        quantity: `₹${(t.totalPrice || 22500).toLocaleString()}`,
-        status: t.status === 'completed' ? 'Completed' : 'In Transit'
-      }))
+      ...allTransactions.slice(0, 2).map(t => {
+        const norm = normalizeStatus(t.orderStatus || t.status);
+        return {
+          time: '2 hours ago',
+          industry: t.seller?.companyName || t.seller?.email || 'Seller Factory',
+          activity: 'Exchange Agreement',
+          material: t.waste?.name || 'Secondary Material',
+          quantity: `₹${(t.totalPrice || 0).toLocaleString()}`,
+          status: STATUS_LABELS[norm] || norm
+        };
+      })
     ].slice(0, 6);
 
-    const pendingActionsTotal = (pendingVerifications.length || 0) + (pendingListings.length || 0) + 4 + (aiMismatches.length || 0) + (exchangeStatusCounts.disputed || 0);
+    // Recent Exchanges from actual MongoDB records
+    const recentExchanges = allTransactions.slice(0, 6).map(t => {
+      const partnerName = t.buyer?.companyName || t.seller?.companyName || t.buyer?.email || t.seller?.email || 'Industrial Partner';
+      const initials = partnerName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'IP';
+      const norm = normalizeStatus(t.orderStatus || t.status);
+      const d = new Date(t.createdAt || Date.now());
+      return {
+        id: t._id,
+        exchangeId: t.exchangeId || t.orderId || t._id?.toString().slice(-6),
+        partner: partnerName,
+        initials,
+        material: t.waste?.name || 'Secondary Material',
+        quantity: `${(t.quantity || 0).toLocaleString()} ${t.unit || 'kg'}`,
+        value: Number(t.totalPrice) || 0,
+        status: STATUS_LABELS[norm] || norm,
+        rawStatus: norm,
+        date: `${d.getDate()} ${d.toLocaleString('default', { month: 'short' })}`
+      };
+    });
+
+    const pendingActionsTotal = (pendingVerifications.length || 0) + (pendingListings.length || 0) + (exchangeStatusCounts.pending || 0);
 
     return res.status(200).json({
       metrics: {
         totalUsers,
         totalIndustries,
-        sellersCount: sellersCount,
-        buyersCount: buyersCount,
-        dualRoleCount: dualRoleCount,
+        sellersCount,
+        buyersCount,
+        dualRoleCount,
         totalListings: allWastes.length,
         activeListingsCount: activeListings.length,
         totalRequirements: allRequirements.length,
         activeRequirementsCount: activeRequirements.length,
-        activeExchangesCount: activeTransactions.length,
-        totalTransactions: allTransactions.length,
-        completedTransactionsCount: completedTransactions.length,
+        activeExchangesCount: exchangeStatusCounts.inTransit + exchangeStatusCounts.processing + exchangeStatusCounts.accepted,
+        totalTransactions: totalExchanges,
+        totalExchanges,
+        completedTransactionsCount,
         totalTransactionValueInr: Math.round(totalTransactionValue),
-        totalCarbonSavedTons: parseFloat(((totalCarbonSavedKg) / 1000).toFixed(1)),
-        transportCo2Tons: parseFloat(((totalTransportCo2Kg) / 1000).toFixed(1)),
-        totalWasteDivertedTons: parseFloat(((totalWasteDivertedKg) / 1000).toFixed(1)),
+        totalCarbonSavedTons,
+        totalCarbonSavedKg,
+        transportCo2Tons: parseFloat(((totalTransportCo2Kg) / 1000).toFixed(2)),
+        totalWasteDivertedTons,
+        totalWasteDivertedKg,
+        virginMaterialReplacedTons,
+        virginMaterialReplacedKg,
         pendingActionsCount: pendingActionsTotal
       },
       pendingActions: {
         unverifiedIndustriesCount: pendingVerifications.length || 0,
         pendingListingsCount: pendingListings.length || 0,
-        complianceReviewsCount: 4,
-        activeDisputesCount: exchangeStatusCounts.disputed || 0,
+        complianceReviewsCount: 0,
+        activeDisputesCount: exchangeStatusCounts.cancelled || 0,
         flaggedMaterialsCount: flaggedListings.length || 0,
         aiMismatchesCount: aiMismatches.length || 0,
-        routeErrorsCount: 1
+        routeErrorsCount: 0
       },
       exchangeStatusCounts,
+      exchangeStatusData,
+      totalStatusCount: totalExchanges,
       recentActivity,
+      recentExchanges,
       supplyVsDemand,
-      aiHealth: {
-        matchSuccessRate: 89.2,
-        averageMatchScore: 91.5,
-        classificationAccuracy: 96.4,
-        classificationMismatches: aiMismatches.length || 2,
-        demandForecastStatus: 'Healthy & Synced',
-        ragQueriesCount: 342,
-        aiErrorsCount: 0
-      },
       recentListings: allWastes.slice(0, 6),
       recentTransactions: allTransactions.slice(0, 6),
       pendingVerifications
@@ -393,8 +456,11 @@ const getAllTransactions = async (req, res) => {
       const buyerId = trans.buyer?._id || trans.buyer;
       const sellerProfile = sellerId ? await Industry.findOne({ user: sellerId }) : null;
       const buyerProfile = buyerId ? await Industry.findOne({ user: buyerId }) : null;
+      const normStatus = normalizeStatus(trans.orderStatus || trans.status);
       return {
         ...trans.toObject(),
+        normalizedStatus: normStatus,
+        statusLabel: STATUS_LABELS[normStatus] || normStatus,
         sellerProfile,
         buyerProfile
       };

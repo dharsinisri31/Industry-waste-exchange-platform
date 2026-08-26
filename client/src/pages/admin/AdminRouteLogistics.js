@@ -18,10 +18,10 @@ export default function AdminRouteLogistics() {
   const [routeError, setRouteError] = useState('');
   const [routeGeometry, setRouteGeometry] = useState(null);
   const [calculatedRoute, setCalculatedRoute] = useState({
-    distanceKm: 326.9,
-    durationHours: 6.5,
-    transportCost: 11442,
-    co2EmissionsKg: 150.4
+    distanceKm: 0,
+    durationHours: 0,
+    transportCost: 0,
+    co2EmissionsKg: 0
   });
 
   const fetchIndustries = async () => {
@@ -42,10 +42,10 @@ export default function AdminRouteLogistics() {
   }, []);
 
   const defaultLocations = [
-    { name: 'Apex Plastics Pvt. Ltd.', city: 'Vadodara', coordinates: [73.1812, 22.3072] },
-    { name: 'GreenPoly Recycling', city: 'Coimbatore', coordinates: [76.9558, 11.0168] },
-    { name: 'Tamil Nadu Materials Recovery', city: 'Chennai', coordinates: [80.2707, 13.0827] },
-    { name: 'Erode Industrial Manufacturing', city: 'Erode', coordinates: [77.7172, 11.3410] }
+    { name: 'Apex Plastics Pvt. Ltd.', city: 'Vadodara', coordinates: [73.1812, 22.3072], businessRole: 'sender' },
+    { name: 'GreenPoly Recycling', city: 'Coimbatore', coordinates: [76.9558, 11.0168], businessRole: 'receiver' },
+    { name: 'Tamil Nadu Materials Recovery', city: 'Chennai', coordinates: [80.2707, 13.0827], businessRole: 'receiver' },
+    { name: 'Erode Industrial Manufacturing', city: 'Erode', coordinates: [77.7172, 11.3410], businessRole: 'sender' }
   ];
 
   const effectiveIndustries = industries.length > 0 ? industries : defaultLocations;
@@ -53,7 +53,7 @@ export default function AdminRouteLogistics() {
   const handleRecalculateRoute = () => {
     setRouteError('');
     if (originIndex === destinationIndex) {
-      setRouteError('Origin and Destination facilities must be different.');
+      setRouteError('Origin (Seller) and Destination (Buyer) facilities must be different.');
       return;
     }
 
@@ -63,7 +63,7 @@ export default function AdminRouteLogistics() {
     const originCoords = origin.location?.coordinates || origin.coordinates || [73.1812, 22.3072];
     const destCoords = destination.location?.coordinates || destination.coordinates || [76.9558, 11.0168];
 
-    // Haversine / Road Estimation
+    // Haversine / Road Distance Calculation
     const lat1 = originCoords[1], lon1 = originCoords[0];
     const lat2 = destCoords[1], lon2 = destCoords[0];
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -83,16 +83,17 @@ export default function AdminRouteLogistics() {
 
     const ratePerKm = vehicleType === 'smallTruck' ? 25 : vehicleType === 'mediumTruck' ? 35 : 48;
     const emissionFactor = vehicleType === 'smallTruck' ? 0.35 : vehicleType === 'mediumTruck' ? 0.46 : 0.65;
+    const baseHandlingFee = 500;
 
     setCalculatedRoute({
       distanceKm: roadKm,
       durationHours: Number((roadKm / 50).toFixed(1)),
-      transportCost: Math.round(roadKm * ratePerKm),
+      transportCost: Math.round((roadKm * ratePerKm) + baseHandlingFee),
       co2EmissionsKg: Number((roadKm * emissionFactor).toFixed(1))
     });
 
     // Interpolate realistic road waypoints between origin & destination
-    const steps = 6;
+    const steps = 8;
     const waypoints = [];
     for (let i = 0; i <= steps; i++) {
       const frac = i / steps;
@@ -109,13 +110,21 @@ export default function AdminRouteLogistics() {
     }
   }, [originIndex, destinationIndex, vehicleType, industries]);
 
-  const markers = effectiveIndustries.map((ind, i) => ({
-    id: ind._id || i,
-    name: ind.companyName || ind.name || `Facility ${i + 1}`,
-    type: ind.businessRole === 'receiver' ? 'Waste Recycler / Buyer' : 'Waste Producer',
-    city: ind.city || ind.address || 'Regional Hub',
-    coordinates: ind.location?.coordinates || ind.coordinates || [73.1812 + (i * 0.5), 22.3072 + (i * 0.4)]
-  }));
+  const markers = effectiveIndustries.map((ind, i) => {
+    let role = ind.businessRole || 'both';
+    if (i === originIndex) role = 'sender'; // Origin / Seller
+    else if (i === destinationIndex) role = 'receiver'; // Destination / Buyer
+
+    return {
+      id: ind._id || i,
+      name: ind.companyName || ind.name || `Facility ${i + 1}`,
+      businessRole: role,
+      role: role,
+      type: role === 'receiver' ? 'Buyer Destination' : role === 'sender' ? 'Seller Pickup' : 'Industrial Facility',
+      city: ind.city || ind.address || 'Regional Hub',
+      coordinates: ind.location?.coordinates || ind.coordinates || [73.1812 + (i * 0.5), 22.3072 + (i * 0.4)]
+    };
+  });
 
   return (
     <AdminLayout>

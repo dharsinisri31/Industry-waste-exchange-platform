@@ -6,6 +6,11 @@ import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import Loader from '../components/Loader';
 import { formatINR } from '../utils/formatINR';
+import OrderTracker from '../components/OrderTracker';
+import InvoiceModal from '../components/InvoiceModal';
+import ReviewModal from '../components/ReviewModal';
+import DisputeModal from '../components/DisputeModal';
+import { generateInvoicePDF } from '../utils/invoiceGenerator';
 import { 
   FiTrendingUp, FiCheckCircle, FiTruck, FiDollarSign, 
   FiFileText, FiStar, FiAward, FiShield, FiClock, 
@@ -14,13 +19,17 @@ import {
 
 export default function ExchangeDetail() {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, profile, activeRole } = useAuth();
   const [exchange, setExchange] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [notification, setNotification] = useState('');
 
   // Modals & form states
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [showNewReviewModal, setShowNewReviewModal] = useState(false);
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
+
   const [showWeighmentModal, setShowWeighmentModal] = useState(false);
   const [weighmentForm, setWeighmentForm] = useState({
     sellerDeclaredWeight: 5000,
@@ -218,6 +227,15 @@ export default function ExchangeDetail() {
           </div>
         ) : exchange ? (
           <div className="space-y-6">
+            
+            {/* Visual Order Lifecycle Stepper & Actions */}
+            <OrderTracker
+              order={exchange}
+              onStatusUpdated={fetchExchange}
+              onOpenReviewModal={() => setShowNewReviewModal(true)}
+              onOpenDisputeModal={() => setShowDisputeModal(true)}
+              onOpenInvoiceModal={() => setShowInvoiceModal(true)}
+            />
             
             {/* Action Bar / Status Operations */}
             <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm space-y-4">
@@ -621,6 +639,36 @@ export default function ExchangeDetail() {
               </form>
             </div>
           </div>
+        )}
+
+        {/* New Standardized Invoice Modal */}
+        {showInvoiceModal && (
+          <InvoiceModal
+            order={exchange}
+            isOpen={showInvoiceModal}
+            onClose={() => setShowInvoiceModal(false)}
+          />
+        )}
+
+        {/* New Multi-Criteria Rating & Review Modal */}
+        {showNewReviewModal && (
+          <ReviewModal
+            order={exchange}
+            isOpen={showNewReviewModal}
+            onClose={() => setShowNewReviewModal(false)}
+            onReviewSubmitted={fetchExchange}
+            role={exchange.buyer?._id === user?._id || exchange.buyer === user?._id ? 'buyer' : 'seller'}
+          />
+        )}
+
+        {/* New Quality Dispute Modal */}
+        {showDisputeModal && (
+          <DisputeModal
+            order={exchange}
+            isOpen={showDisputeModal}
+            onClose={() => setShowDisputeModal(false)}
+            onDisputeCreated={fetchExchange}
+          />
         )}
 
       </main>

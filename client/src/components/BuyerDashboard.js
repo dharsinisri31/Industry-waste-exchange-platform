@@ -8,11 +8,11 @@ import {
 
 export default function BuyerDashboard({ user, profile, metrics = {}, myRequirements = [] }) {
   const safeMetrics = {
-    uploadedWasteCount: metrics?.uploadedWasteCount ?? 0,
-    revenue: metrics?.revenue ?? 0,
-    carbonSaved: metrics?.carbonSaved ?? 0,
-    pendingCount: metrics?.pendingCount ?? 0,
-    completedCount: metrics?.completedCount ?? 0
+    uploadedWasteCount: Number(metrics?.uploadedWasteCount) || 0,
+    revenue: Number(metrics?.revenue) || 0,
+    carbonSaved: Number(metrics?.carbonSaved) || 0,
+    pendingCount: Number(metrics?.pendingCount) || 0,
+    completedCount: Number(metrics?.completedCount) || 0
   };
 
   const safeReqs = Array.isArray(myRequirements) ? myRequirements : [];
@@ -58,7 +58,7 @@ export default function BuyerDashboard({ user, profile, metrics = {}, myRequirem
           </div>
           <div>
             <div className="text-3xl font-extrabold text-gray-900 tracking-tight">
-              {safeReqs.length || 3}
+              {safeReqs.length}
             </div>
             <span className="text-xs font-semibold text-teal-700 mt-1 inline-block">Sourcing Items Active</span>
           </div>
@@ -74,25 +74,25 @@ export default function BuyerDashboard({ user, profile, metrics = {}, myRequirem
           </div>
           <div>
             <div className="text-3xl font-extrabold text-gray-900 tracking-tight">
-              {safeMetrics.pendingCount || 2}
+              {safeMetrics.pendingCount}
             </div>
             <span className="text-xs font-semibold text-amber-700 mt-1 inline-block">Awaiting Supplier Confirmation</span>
           </div>
         </div>
 
-        {/* Procurement Savings */}
+        {/* Procurement Savings / Volume */}
         <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-xs flex flex-col justify-between space-y-4 hover:border-emerald-300 transition-colors">
           <div className="flex justify-between items-center">
-            <span className="uppercase tracking-wider font-bold text-[11px] text-gray-500">Procurement Savings</span>
+            <span className="uppercase tracking-wider font-bold text-[11px] text-gray-500">Completed Procurements</span>
             <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-100">
               <FiDollarSign className="w-5 h-5" />
             </div>
           </div>
           <div>
             <div className="text-3xl font-extrabold text-emerald-800 tracking-tight">
-              {formatINR(125000)}
+              {safeMetrics.completedCount}
             </div>
-            <span className="text-xs font-semibold text-emerald-700 mt-1 inline-block">Saved vs Virgin Material</span>
+            <span className="text-xs font-semibold text-emerald-700 mt-1 inline-block">Fulfilled Circular Trades</span>
           </div>
         </div>
 
@@ -106,7 +106,7 @@ export default function BuyerDashboard({ user, profile, metrics = {}, myRequirem
           </div>
           <div>
             <div className="text-3xl font-extrabold text-gray-900 tracking-tight">
-              2,450 <span className="text-lg font-bold text-gray-600">kg</span>
+              {safeMetrics.carbonSaved.toFixed(1)} <span className="text-lg font-bold text-gray-600">kg</span>
             </div>
             <span className="text-xs font-semibold text-indigo-700 mt-1 inline-block">Circular Procurement Impact</span>
           </div>
@@ -127,18 +127,20 @@ export default function BuyerDashboard({ user, profile, metrics = {}, myRequirem
           </div>
 
           {safeReqs.length === 0 ? (
-            <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-xs space-y-2">
-              <div className="flex justify-between items-center">
-                <div>
-                  <span className="font-extrabold text-gray-900 text-sm">PET Plastic Scrap</span>
-                  <div className="text-gray-600 font-medium text-[11px]">500 kg/month &bull; Purity &ge; 95% &bull; Max {formatINR(50)}/kg</div>
-                </div>
-                <span className="px-2.5 py-1 bg-teal-100 text-teal-800 rounded-full text-[10px] font-extrabold">Active</span>
+            <div className="p-8 bg-gray-50 rounded-2xl border border-dashed border-gray-300 text-center space-y-3">
+              <div className="w-10 h-10 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center mx-auto">
+                <FiCpu className="w-5 h-5" />
               </div>
-              <div className="pt-2 border-t border-gray-200 flex justify-between items-center text-[11px]">
-                <span className="text-gray-500 font-medium">Delivery: Tiruppur (100km radius)</span>
-                <Link to="/sourcing-matcher" className="text-teal-700 font-extrabold hover:underline">Find AI Suppliers &rarr;</Link>
+              <div className="space-y-1">
+                <strong className="text-gray-800 text-sm block">No active requirements posted yet</strong>
+                <p className="text-xs text-gray-500">Post your secondary raw material specifications to let our matching engine discover nearby industrial byproduct suppliers.</p>
               </div>
+              <Link
+                to="/post-requirement"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+              >
+                <FiPlus className="w-3.5 h-3.5" /> Post First Requirement
+              </Link>
             </div>
           ) : (
             <div className="space-y-3">
@@ -158,7 +160,7 @@ export default function BuyerDashboard({ user, profile, metrics = {}, myRequirem
                   <div className="pt-2 border-t border-gray-200 flex justify-between items-center text-[11px]">
                     <span className="text-gray-500 font-medium">Location: {req.city} ({req.radiusKm || 100}km radius)</span>
                     <Link to="/sourcing-matcher" state={{ requirementId: req._id }} className="text-teal-700 font-extrabold hover:underline">
-                      Find AI Suppliers ({req.matchedSuppliersCount || 4}) &rarr;
+                      Find AI Suppliers &rarr;
                     </Link>
                   </div>
                 </div>
@@ -167,38 +169,47 @@ export default function BuyerDashboard({ user, profile, metrics = {}, myRequirem
           )}
         </div>
 
-        {/* Supply vs Demand Insights Card */}
+        {/* Quick Sourcing Actions */}
         <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-xs space-y-4 flex flex-col justify-between">
-          <div>
-            <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2 mb-4 pb-2 border-b border-gray-100">
-              <FiTrendingUp className="text-teal-600 w-4 h-4" /> Market Supply vs Demand Insights
+          <div className="space-y-3">
+            <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2 pb-2 border-b border-gray-100">
+              <FiTrendingUp className="text-teal-600 w-4 h-4" /> Circular Procurement Quick Links
             </h3>
-            <div className="space-y-3 text-xs">
-              <div className="p-3 bg-teal-50/50 rounded-xl border border-teal-200 space-y-1">
-                <span className="text-teal-900 font-extrabold block">PET Plastic Scrap</span>
-                <div className="flex justify-between text-[11px] font-medium">
-                  <span className="text-gray-600">Listed Supply: 12,000 kg</span>
-                  <span className="text-teal-800 font-bold">Demand: 17,000 kg</span>
+            <div className="space-y-2 text-xs">
+              <Link
+                to="/marketplace"
+                className="p-3 bg-teal-50/60 rounded-xl border border-teal-200 flex items-center justify-between hover:bg-teal-50 transition-all block"
+              >
+                <div>
+                  <strong className="text-teal-950 block font-bold">Browse Live Marketplace</strong>
+                  <span className="text-gray-500 text-[11px]">Explore verified secondary listings</span>
                 </div>
-                <p className="text-[10px] text-teal-800 font-bold mt-1">Demand Gap: 5,000 kg excess demand</p>
-              </div>
+                <FiArrowRight className="text-teal-700 w-4 h-4" />
+              </Link>
+              
+              <Link
+                to="/sourcing-matcher"
+                className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between hover:bg-gray-100 transition-all block"
+              >
+                <div>
+                  <strong className="text-gray-900 block font-bold">Smart Supplier Matcher</strong>
+                  <span className="text-gray-500 text-[11px]">AI-powered byproduct compatibility</span>
+                </div>
+                <FiArrowRight className="text-gray-600 w-4 h-4" />
+              </Link>
 
-              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 space-y-1">
-                <span className="text-gray-900 font-bold block">Aluminium Machining Scrap</span>
-                <div className="flex justify-between text-[11px] font-medium">
-                  <span className="text-gray-600">Listed Supply: 8,500 kg</span>
-                  <span className="text-gray-800 font-bold">Demand: 6,000 kg</span>
+              <Link
+                to="/traceability"
+                className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between hover:bg-gray-100 transition-all block"
+              >
+                <div>
+                  <strong className="text-gray-900 block font-bold">Track Active Orders</strong>
+                  <span className="text-gray-500 text-[11px]">Weighment & dispatch milestones</span>
                 </div>
-              </div>
+                <FiArrowRight className="text-gray-600 w-4 h-4" />
+              </Link>
             </div>
           </div>
-
-          <Link
-            to="/upload-waste"
-            className="w-full py-2.5 mt-2 bg-gray-100 hover:bg-gray-200 border border-gray-200 text-gray-800 font-bold rounded-xl text-xs transition-all text-center block cursor-pointer"
-          >
-            Sell / List My Own Waste
-          </Link>
         </div>
       </div>
     </div>

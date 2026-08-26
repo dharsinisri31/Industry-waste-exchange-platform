@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import Loader from '../components/Loader';
-import { apiGet } from '../services/api';
+import { apiGet, apiPost } from '../services/api';
 import { formatINR } from '../utils/formatINR';
-import { FiZap, FiCheckCircle, FiMapPin, FiTruck, FiGlobe, FiDollarSign, FiInfo } from 'react-icons/fi';
+import { FiZap, FiCheckCircle, FiMapPin, FiTruck, FiGlobe, FiDollarSign, FiInfo, FiSend } from 'react-icons/fi';
 
 export default function BuyerSupplierMatcher() {
   const routerLocation = useLocation();
@@ -15,6 +15,31 @@ export default function BuyerSupplierMatcher() {
   const [myRequirements, setMyRequirements] = useState([]);
   const [selectedReqId, setSelectedReqId] = useState(stateReqId || '');
   const [matchResults, setMatchResults] = useState(null);
+  const [requestedSuppliers, setRequestedSuppliers] = useState({});
+  const [notification, setNotification] = useState('');
+
+  const handleSendExchangeRequest = async (sup) => {
+    try {
+      setLoading(true);
+      const res = await apiPost(`/api/waste/${sup.wasteId}/exchange`, {
+        requirementId: selectedReqId,
+        quantity: matchResults?.requirement?.quantity || sup.availableQuantity
+      });
+
+      const exchangeId = res.exchangeId || res.orderId || res._id;
+      setRequestedSuppliers(prev => ({
+        ...prev,
+        [sup.wasteId]: exchangeId
+      }));
+
+      setNotification(`Exchange request sent directly to ${sup.supplierName}. Status: Request Sent.`);
+      setTimeout(() => setNotification(''), 6000);
+    } catch (err) {
+      alert(err.message || 'Failed to send exchange request.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchReqs = async () => {
@@ -104,6 +129,14 @@ export default function BuyerSupplierMatcher() {
             </p>
           </div>
         </div>
+
+        {/* Notification Toast */}
+        {notification && (
+          <div className="p-4 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-2xl text-xs font-bold flex items-center gap-2.5 shadow-xs">
+            <FiCheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+            <span>{notification}</span>
+          </div>
+        )}
 
         {/* Selector Card */}
         <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-xs space-y-4">
@@ -219,12 +252,26 @@ export default function BuyerSupplierMatcher() {
 
                     {/* Action Buttons */}
                     <div className="flex flex-wrap items-center gap-3 pt-2">
-                      <button
-                        onClick={() => navigate(`/waste/${sup.wasteId}`)}
-                        className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-extrabold rounded-xl text-xs shadow-2xs transition-all cursor-pointer"
-                      >
-                        Request Material Exchange &rarr;
-                      </button>
+                      {requestedSuppliers[sup.wasteId] ? (
+                        <div className="flex items-center gap-2">
+                          <span className="px-4 py-2 bg-emerald-100 text-emerald-800 font-extrabold rounded-xl text-xs flex items-center gap-1.5 border border-emerald-300">
+                            <FiCheckCircle className="w-4 h-4" /> Request Sent
+                          </span>
+                          <button
+                            onClick={() => navigate(`/exchange/${requestedSuppliers[sup.wasteId]}`)}
+                            className="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-900 font-bold rounded-xl text-xs transition-all cursor-pointer"
+                          >
+                            View Order &rarr;
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleSendExchangeRequest(sup)}
+                          className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-extrabold rounded-xl text-xs shadow-2xs transition-all cursor-pointer flex items-center gap-2"
+                        >
+                          <FiSend className="w-3.5 h-3.5" /> Send Exchange Request
+                        </button>
+                      )}
                       <button
                         onClick={() => navigate('/gis-map', { state: { wasteId: sup.wasteId } })}
                         className="px-4 py-2.5 bg-white border border-gray-200 hover:bg-gray-100 text-gray-800 font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center gap-1.5"

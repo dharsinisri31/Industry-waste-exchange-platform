@@ -15,6 +15,11 @@ const industrySchema = new mongoose.Schema({
     enum: ['sender', 'receiver', 'both'],
     default: 'sender'
   },
+  roles: {
+    type: [String],
+    enum: ['buyer', 'seller'],
+    default: ['seller']
+  },
   industryType: {
     type: String,
     required: true

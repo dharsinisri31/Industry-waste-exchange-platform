@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { 
   FiHome, FiUploadCloud, FiShoppingBag, 
   FiTrendingUp, FiUser, FiZap, FiNavigation, 
-  FiShield, FiFileText, FiLayers, FiActivity, FiBell, FiCheckCircle, FiX 
+  FiShield, FiFileText, FiLayers, FiActivity, FiBell, FiCheckCircle, FiX,
+  FiDollarSign, FiAlertTriangle 
 } from 'react-icons/fi';
 import { ROLES, normalizeRole } from '../utils/roleUtils';
 import API from '../services/authAPI';
@@ -53,6 +54,8 @@ export default function Sidebar() {
     { to: '/marketplace', label: 'Marketplace', icon: FiShoppingBag },
     { to: '/recommendations', label: 'Smart Matching', icon: FiZap },
     { to: '/traceability', label: 'Exchanges', icon: FiActivity },
+    { to: '/payments', label: 'Sales & Payments', icon: FiDollarSign },
+    { to: '/disputes', label: 'Disputes', icon: FiAlertTriangle },
     { to: '/route-optimization', label: 'Route Optimization', icon: FiNavigation },
     { to: '/documents', label: 'Documents', icon: FiFileText },
     { to: '/profile', label: 'Profile', icon: FiUser }
@@ -65,6 +68,8 @@ export default function Sidebar() {
     { to: '/my-requirements', label: 'Material Requirements', icon: FiLayers },
     { to: '/sourcing-matcher', label: 'Smart Matching', icon: FiZap },
     { to: '/traceability', label: 'Exchanges', icon: FiActivity },
+    { to: '/payments', label: 'Payment History', icon: FiDollarSign },
+    { to: '/disputes', label: 'Disputes', icon: FiAlertTriangle },
     { to: '/route-optimization', label: 'Route Optimization', icon: FiNavigation },
     { to: '/documents', label: 'Documents', icon: FiFileText },
     { to: '/profile', label: 'Profile', icon: FiUser }
@@ -77,6 +82,8 @@ export default function Sidebar() {
     { to: '/admin/waste-listings', label: 'Waste Listings', icon: FiShoppingBag },
     { to: '/admin/material-requirements', label: 'Material Requirements', icon: FiLayers },
     { to: '/admin/exchanges', label: 'Exchange Monitoring', icon: FiActivity },
+    { to: '/admin/payments', label: 'Transactions & Payments', icon: FiDollarSign },
+    { to: '/admin/disputes', label: 'Dispute Arbitration', icon: FiAlertTriangle },
     { to: '/admin/smart-matching', label: 'Smart Matching', icon: FiZap },
     { to: '/admin/analytics', label: 'Analytics', icon: FiTrendingUp },
     { to: '/admin/route-logistics', label: 'Route & Logistics', icon: FiNavigation },

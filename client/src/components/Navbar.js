@@ -6,7 +6,18 @@ import {
 } from 'react-icons/fi';
 
 export default function Navbar() {
-  const { user, profile, logout, isSellerMode, isBuyerMode, switchRole, canonicalRole } = useAuth();
+  const { 
+    user, 
+    profile, 
+    logout, 
+    isSellerMode, 
+    isBuyerMode, 
+    isBuyerOnly, 
+    isSellerOnly, 
+    isDualRole, 
+    switchRole, 
+    canonicalRole 
+  } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
   const navigate = useNavigate();
 
@@ -56,9 +67,21 @@ export default function Navbar() {
             /* Logged-In State */
             <div className="flex items-center gap-2.5">
               
-              {/* Role Badge / Switcher - For Industry Users only */}
-              {!isAdminUser ? (
-                <div className="flex items-center p-1 bg-[#F6F8F7] rounded-xl border border-[#DDE7E2] text-xs">
+              {/* Role Header Display: Strict role badge or dual switcher */}
+              {isAdminUser ? (
+                <span className="inline-block px-3 py-1 rounded-xl text-[10px] font-black uppercase bg-[#EAF8F2] text-[#009B6B] border border-[#DDE7E2] tracking-wider">
+                  Admin
+                </span>
+              ) : isBuyerOnly ? (
+                <span className="inline-block px-3 py-1 rounded-xl text-[10px] font-black uppercase bg-teal-50 text-teal-800 border border-teal-200 tracking-wider">
+                  BUYER
+                </span>
+              ) : isSellerOnly ? (
+                <span className="inline-block px-3 py-1 rounded-xl text-[10px] font-black uppercase bg-emerald-50 text-emerald-800 border border-emerald-200 tracking-wider">
+                  SELLER
+                </span>
+              ) : isDualRole ? (
+                <div className="flex items-center p-1 bg-[#F6F8F7] rounded-xl border border-[#DDE7E2] text-xs shadow-2xs">
                   <button
                     onClick={() => switchRole('seller')}
                     className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-all cursor-pointer ${
@@ -66,6 +89,7 @@ export default function Navbar() {
                         ? 'bg-[#009B6B] text-white shadow-2xs'
                         : 'text-[#12233F]/70 hover:text-[#12233F]'
                     }`}
+                    title="Switch to Seller View"
                   >
                     Seller
                   </button>
@@ -76,13 +100,14 @@ export default function Navbar() {
                         ? 'bg-teal-700 text-white shadow-2xs'
                         : 'text-[#12233F]/70 hover:text-[#12233F]'
                     }`}
+                    title="Switch to Buyer View"
                   >
                     Buyer
                   </button>
                 </div>
               ) : (
-                <span className="inline-block px-2.5 py-1 rounded-lg text-[10px] font-black uppercase bg-[#EAF8F2] text-[#009B6B] border border-[#DDE7E2]">
-                  Admin
+                <span className="inline-block px-3 py-1 rounded-xl text-[10px] font-black uppercase bg-emerald-50 text-emerald-800 border border-emerald-200 tracking-wider">
+                  SELLER
                 </span>
               )}
 

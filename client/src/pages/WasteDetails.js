@@ -4,6 +4,7 @@ import API from '../services/authAPI';
 import { getListingDetails, requestExchange } from '../services/wasteAPI';
 import DashboardLayout from '../layouts/DashboardLayout';
 import Loader from '../components/Loader';
+import SellerReviews from '../components/SellerReviews';
 import { 
   FiMapPin, FiTruck, FiCheckCircle, FiTrendingUp, FiZap, 
   FiShield, FiGlobe, FiActivity, FiNavigation, FiFileText, 
@@ -361,6 +362,11 @@ export default function WasteDetails() {
           </div>
 
         </div>
+
+        {/* Seller Trust & Ratings Section */}
+        {waste.uploader && (
+          <SellerReviews sellerId={waste.uploader?._id || waste.uploader} />
+        )}
 
       </div>
     </DashboardLayout>

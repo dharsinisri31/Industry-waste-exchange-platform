@@ -23,23 +23,13 @@ export default function ComplianceManager() {
     try {
       setLoading(true);
       const data = await apiGet('/api/compliance');
-      if (data && data.length > 0) {
+      if (Array.isArray(data) && data.length > 0) {
         setDocs(data);
       } else {
         setDocs([]);
       }
     } catch (err) {
-      // Demo record
-      setDocs([
-        {
-          _id: 'doc-1',
-          fileName: 'Polymer_Assay_Report_2026.pdf',
-          docType: 'Waste Assay / Lab Report',
-          status: 'Verified',
-          associatedExchange: 'EXC-8849 (PET Scrap Exchange)',
-          createdAt: new Date().toISOString().split('T')[0]
-        }
-      ]);
+      setDocs([]);
     } finally {
       setLoading(false);
     }

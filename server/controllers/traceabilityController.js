@@ -149,9 +149,6 @@ const getTraceability = async (req, res) => {
   }
 };
 
-// @desc    Get detailed exchange order by ID
-// @route   GET /api/exchanges/:id
-// @access  Authenticated
 const getExchangeById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -161,9 +158,11 @@ const getExchangeById = async (req, res) => {
         ...(id.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: id }] : [])
       ]
     })
-      .populate('seller', 'name email')
-      .populate('buyer', 'name email')
-      .populate('waste');
+      .populate('seller', 'name email companyName')
+      .populate('buyer', 'name email companyName')
+      .populate('waste')
+      .populate('paymentId')
+      .populate('dispute');
 
     if (!transaction) {
       return res.status(404).json({ success: false, message: 'Exchange order not found.' });
@@ -590,6 +589,156 @@ const confirmRecycling = async (req, res) => {
   }
 };
 
+// @desc    Update order lifecycle status
+// @route   PATCH /api/traceability/exchanges/:id/order-status
+// @access  Private (Buyer, Seller, or Admin)
+const updateOrderStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { orderStatus, note } = req.body;
+
+    const validStatuses = [
+      'Order Placed',
+      'Payment Confirmed',
+      'Seller Accepted',
+      'Waste Prepared',
+      'Pickup Scheduled',
+      'In Transit',
+      'Delivered',
+      'Completed',
+      'Cancelled',
+      'Disputed'
+    ];
+
+    if (!validStatuses.includes(orderStatus)) {
+      return res.status(400).json({ success: false, message: `Invalid status "${orderStatus}". Valid statuses: ${validStatuses.join(', ')}` });
+    }
+
+    const transaction = await Transaction.findOne({
+      $or: [
+        { exchangeId: id },
+        ...(id.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: id }] : [])
+      ]
+    }).populate('waste').populate('seller').populate('buyer');
+
+    if (!transaction) {
+      return res.status(404).json({ success: false, message: 'Exchange order not found.' });
+    }
+
+    const isBuyer = transaction.buyer._id.equals(req.user._id);
+    const isSeller = transaction.seller._id.equals(req.user._id);
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isBuyer && !isSeller && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'Unauthorized action.' });
+    }
+
+    // Role-based transition validation
+    if (!isAdmin) {
+      if (isSeller) {
+        const sellerAllowed = ['Seller Accepted', 'Waste Prepared', 'Pickup Scheduled', 'In Transit', 'Delivered', 'Cancelled'];
+        if (!sellerAllowed.includes(orderStatus)) {
+          return res.status(403).json({ success: false, message: `Sellers can only update to: ${sellerAllowed.join(', ')}` });
+        }
+      } else if (isBuyer) {
+        const buyerAllowed = ['Completed', 'Cancelled', 'Disputed', 'Order Placed'];
+        if (!buyerAllowed.includes(orderStatus)) {
+          return res.status(403).json({ success: false, message: `Buyers can only update to: ${buyerAllowed.join(', ')}` });
+        }
+      }
+    }
+
+    transaction.orderStatus = orderStatus;
+    const statusMap = {
+      'Order Placed': 'order_placed',
+      'Payment Confirmed': 'accepted',
+      'Seller Accepted': 'accepted',
+      'Waste Prepared': 'accepted',
+      'Pickup Scheduled': 'in_transit',
+      'In Transit': 'in_transit',
+      'Delivered': 'delivered',
+      'Completed': 'completed',
+      'Cancelled': 'cancelled',
+      'Disputed': 'disputed'
+    };
+    transaction.status = statusMap[orderStatus] || transaction.status;
+
+    if (orderStatus === 'In Transit' || orderStatus === 'Pickup Scheduled') {
+      transaction.logistics.status = orderStatus === 'In Transit' ? 'In Transit' : 'Scheduled';
+    } else if (orderStatus === 'Delivered') {
+      transaction.logistics.status = 'Delivered';
+      transaction.logistics.deliveredAt = new Date();
+    } else if (orderStatus === 'Completed') {
+      transaction.completedAt = new Date();
+    }
+
+    // Add to status history
+    transaction.statusHistory.push({
+      status: orderStatus,
+      title: `Status: ${orderStatus}`,
+      note: note || `Order updated to ${orderStatus} by ${req.user.name || (isSeller ? 'Seller' : (isBuyer ? 'Buyer' : 'Admin'))}.`,
+      actor: req.user.name || (isSeller ? 'Seller' : (isBuyer ? 'Buyer' : 'Admin')),
+      changedBy: req.user._id,
+      changedByName: req.user.name || req.user.email,
+      timestamp: new Date()
+    });
+
+    // Add to timeline
+    transaction.timeline.push({
+      stage: orderStatus,
+      title: `Order: ${orderStatus}`,
+      description: note || `Shipment/order status moved to "${orderStatus}".`,
+      timestamp: new Date(),
+      locationName: transaction.logistics?.currentLocation?.address || 'Transit Hub',
+      actor: req.user.name || 'Order Manager'
+    });
+
+    await transaction.save();
+
+    // Create Notification for the counterparty
+    const notifyUser = isBuyer ? transaction.seller._id : transaction.buyer._id;
+    const wasteName = transaction.waste?.name || 'Waste Material';
+    
+    let notificationTitle = `📦 Order #${transaction.exchangeId || transaction._id.toString().slice(-6)}: ${orderStatus}`;
+    let notificationMessage = `Status updated to "${orderStatus}" for "${wasteName}".`;
+
+    if (orderStatus === 'Seller Accepted') {
+      notificationTitle = '✅ Exchange Request Accepted';
+      notificationMessage = `Seller has accepted your exchange request for "${wasteName}". You can now proceed to payment.`;
+    } else if (orderStatus === 'Cancelled' && isSeller) {
+      notificationTitle = '❌ Exchange Request Declined';
+      notificationMessage = `Seller declined the exchange request for "${wasteName}".`;
+    } else if (orderStatus === 'Completed') {
+      notificationTitle = '🎉 Exchange Completed Successfully';
+      notificationMessage = `Custody transfer and recycling settlement verified for "${wasteName}".`;
+    }
+
+    await Notification.create({
+      user: notifyUser,
+      recipient: notifyUser,
+      type: 'status_update',
+      title: notificationTitle,
+      message: notificationMessage,
+      relatedEntity: 'Transaction',
+      relatedEntityId: transaction._id.toString(),
+      link: `/exchange/${transaction.exchangeId || transaction._id}`
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Order status updated to "${orderStatus}".`,
+      orderStatus: transaction.orderStatus,
+      status: transaction.status,
+      statusHistory: transaction.statusHistory,
+      timeline: transaction.timeline,
+      exchange: transaction
+    });
+  } catch (err) {
+    console.error('Order status update error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   getTraceability,
   getExchangeById,
@@ -599,5 +748,6 @@ module.exports = {
   submitPartnerRating,
   updateLogisticsStatus,
   confirmDemoPayment,
-  confirmRecycling
+  confirmRecycling,
+  updateOrderStatus
 };

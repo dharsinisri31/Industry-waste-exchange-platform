@@ -47,20 +47,49 @@ const registerIndustry = async (req, res) => {
       resolvedCoords = await geocodeAddress({ address, city, state, country, pinCode });
     }
 
-    // Create User
+    // Derive canonical roles array and businessRole
+    let assignedRoles = ['seller'];
+    let canonicalBusinessRole = 'sender';
+
+    if (Array.isArray(req.body.roles) && req.body.roles.length > 0) {
+      assignedRoles = req.body.roles;
+      if (assignedRoles.includes('buyer') && assignedRoles.includes('seller')) {
+        canonicalBusinessRole = 'both';
+      } else if (assignedRoles.includes('buyer')) {
+        canonicalBusinessRole = 'receiver';
+      } else {
+        canonicalBusinessRole = 'sender';
+      }
+    } else {
+      const bRole = (businessRole || req.body.accountType || 'sender').toLowerCase();
+      if (bRole === 'receiver' || bRole === 'buyer') {
+        assignedRoles = ['buyer'];
+        canonicalBusinessRole = 'receiver';
+      } else if (bRole === 'both' || bRole === 'dual' || bRole === 'buyer_seller') {
+        assignedRoles = ['buyer', 'seller'];
+        canonicalBusinessRole = 'both';
+      } else {
+        assignedRoles = ['seller'];
+        canonicalBusinessRole = 'sender';
+      }
+    }
+
+    // Create User with explicit roles
     const user = await User.create({
       email,
       password,
-      role: 'industry_user'
+      role: 'industry_user',
+      roles: assignedRoles
     });
 
     try {
-      // Create Industry with GeoJSON Point coordinates
+      // Create Industry with GeoJSON Point coordinates and roles
       const industry = await Industry.create({
         user: user._id,
         companyName,
         registrationNumber,
-        businessRole: businessRole || 'sender',
+        businessRole: canonicalBusinessRole,
+        roles: assignedRoles,
         neededWasteTypes: neededWasteTypes || '',
         address,
         city,
@@ -76,6 +105,17 @@ const registerIndustry = async (req, res) => {
       const responseData = sendTokens(res, user);
       return res.status(201).json({
         ...responseData,
+        user: {
+          id: user._id,
+          _id: user._id,
+          email: user.email,
+          role: user.role,
+          roles: assignedRoles,
+          canonicalRole: assignedRoles.includes('seller') ? 'SELLER' : 'BUYER',
+          name: industry.companyName,
+          industryId: industry._id,
+          isVerified: user.isVerified
+        },
         profile: industry
       });
     } catch (dbError) {
@@ -122,6 +162,16 @@ const registerAdmin = async (req, res) => {
       const responseData = sendTokens(res, user);
       return res.status(201).json({
         ...responseData,
+        user: {
+          id: user._id,
+          _id: user._id,
+          email: user.email,
+          role: user.role,
+          roles: ['admin'],
+          canonicalRole: 'ADMIN',
+          name: adminProfile.fullName,
+          isVerified: user.isVerified
+        },
         profile: adminProfile
       });
     } catch (dbError) {
@@ -152,16 +202,30 @@ const login = async (req, res) => {
 
     let profile = null;
     let canonicalRole = 'SELLER';
+    let userRoles = ['seller'];
 
     if (user.role === 'admin') {
       profile = await Admin.findOne({ user: user._id });
       canonicalRole = 'ADMIN';
+      userRoles = ['admin'];
     } else if (user.role === 'industry_user') {
       profile = await Industry.findOne({ user: user._id });
-      if (profile?.businessRole === 'receiver') {
-        canonicalRole = 'BUYER';
+      if (user.roles && user.roles.length > 0) {
+        userRoles = user.roles;
+      } else if (profile?.roles && profile.roles.length > 0) {
+        userRoles = profile.roles;
+      } else if (profile?.businessRole === 'receiver') {
+        userRoles = ['buyer'];
+      } else if (profile?.businessRole === 'both') {
+        userRoles = ['buyer', 'seller'];
       } else {
+        userRoles = ['seller'];
+      }
+
+      if (userRoles.includes('seller')) {
         canonicalRole = 'SELLER';
+      } else if (userRoles.includes('buyer')) {
+        canonicalRole = 'BUYER';
       }
     }
 
@@ -173,6 +237,7 @@ const login = async (req, res) => {
         _id: user._id,
         email: user.email,
         role: user.role,
+        roles: userRoles,
         canonicalRole,
         name: profile?.companyName || profile?.fullName || user.email.split('@')[0],
         industryId: profile?._id,
@@ -225,16 +290,30 @@ const getCurrentUser = async (req, res) => {
     const user = req.user;
     let profile = null;
     let canonicalRole = 'SELLER';
+    let userRoles = ['seller'];
 
     if (user.role === 'admin') {
       profile = await Admin.findOne({ user: user._id });
       canonicalRole = 'ADMIN';
+      userRoles = ['admin'];
     } else if (user.role === 'industry_user') {
       profile = await Industry.findOne({ user: user._id });
-      if (profile?.businessRole === 'receiver') {
-        canonicalRole = 'BUYER';
+      if (user.roles && user.roles.length > 0) {
+        userRoles = user.roles;
+      } else if (profile?.roles && profile.roles.length > 0) {
+        userRoles = profile.roles;
+      } else if (profile?.businessRole === 'receiver') {
+        userRoles = ['buyer'];
+      } else if (profile?.businessRole === 'both') {
+        userRoles = ['buyer', 'seller'];
       } else {
+        userRoles = ['seller'];
+      }
+
+      if (userRoles.includes('seller')) {
         canonicalRole = 'SELLER';
+      } else if (userRoles.includes('buyer')) {
+        canonicalRole = 'BUYER';
       }
     }
 
@@ -244,6 +323,7 @@ const getCurrentUser = async (req, res) => {
         _id: user._id,
         email: user.email,
         role: user.role,
+        roles: userRoles,
         canonicalRole,
         name: profile?.companyName || profile?.fullName || user.email.split('@')[0],
         industryId: profile?._id,

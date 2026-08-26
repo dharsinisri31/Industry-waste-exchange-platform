@@ -296,37 +296,62 @@ const requestExchange = async (req, res) => {
     const processingEmissionsKg = Math.round(waste.quantity * 0.15);
     const netEstimatedCarbonSavingsKg = Math.max(0, virginEmissionsKg - transportEmissionsKg - processingEmissionsKg);
 
+    const exchangeId = `EX-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const wasteCost = (waste.price || 0) * (waste.quantity || 1);
+    const transportCost = routeInfo.transportCostUsd || 1500;
+    const totalPrice = wasteCost + transportCost;
+
     const transaction = await Transaction.create({
+      exchangeId,
+      orderId: exchangeId,
+      batchId: waste.batchId || `EL-BATCH-${Date.now().toString().slice(-4)}`,
       waste: waste._id,
       seller: waste.uploader,
       buyer: req.user._id,
       quantity: waste.quantity,
+      unit: waste.unit || 'kg',
       unitPrice: waste.price,
-      totalPrice: waste.price * waste.quantity,
-      distanceKm: routeInfo.distanceKm,
-      transportCost: routeInfo.transportCostUsd,
+      wasteCost,
+      transportCost,
+      totalPrice,
+      distanceKm: routeInfo.distanceKm || 45,
       carbonSavedKg: netEstimatedCarbonSavingsKg,
-      carbonBreakdown: {
-        virginEmissionsKg,
-        transportEmissionsKg,
-        processingEmissionsKg,
-        netEstimatedCarbonSavingsKg
-      },
-      lifecycleTimeline: [
-        { stage: 'Waste Generated', timestamp: new Date(Date.now() - 86400000 * 2), notes: 'Listed at manufacturing plant' },
-        { stage: 'AI Analysed', timestamp: new Date(Date.now() - 86400000 * 1), notes: 'Valuation and purity AI evaluated' },
-        { stage: 'Buyer Matched', timestamp: new Date(), notes: 'Matched with compatible recipient' },
-        { stage: 'Exchange Requested', timestamp: new Date(), notes: 'B2B exchange request initiated' }
+      orderStatus: 'Order Placed',
+      status: 'order_placed',
+      paymentStatus: 'Pending',
+      statusHistory: [
+        {
+          status: 'Order Placed',
+          title: 'Order Placed by Buyer',
+          note: `Procurement order created for ${waste.quantity} ${waste.unit || 'kg'} of ${waste.name}. Total amount: ₹${totalPrice.toLocaleString()}.`,
+          actor: req.user.name || 'Buyer',
+          changedBy: req.user._id,
+          changedByName: req.user.name || req.user.email,
+          timestamp: new Date()
+        }
       ],
-      status: 'pending'
+      timeline: [
+        {
+          stage: 'Order Placed',
+          title: 'Order Initiated',
+          description: `Order ${exchangeId} placed for ${waste.name}. Total: ₹${totalPrice.toLocaleString()}.`,
+          timestamp: new Date(),
+          locationName: 'EcoLink Marketplace',
+          actor: req.user.name || 'Buyer'
+        }
+      ]
     });
 
     // Notify seller
     await Notification.create({
+      user: waste.uploader,
       recipient: waste.uploader,
-      title: 'New Exchange Request',
-      message: `A buyer has requested exchange for listing "${waste.name}".`,
-      type: 'transaction'
+      title: '📦 New Waste Order Placed',
+      message: `Buyer has placed an order (${exchangeId}) for "${waste.name}". Proceed to await payment or review details.`,
+      type: 'order',
+      relatedEntity: 'Transaction',
+      relatedEntityId: transaction._id.toString(),
+      link: `/exchange/${exchangeId}`
     });
 
     return res.status(201).json(transaction);
