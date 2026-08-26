@@ -99,7 +99,9 @@ const registerIndustry = async (req, res) => {
         },
         contactPhone,
         industryType,
-        description
+        description,
+        status: 'pending',
+        verificationStatus: 'Pending'
       });
 
       const responseData = sendTokens(res, user);

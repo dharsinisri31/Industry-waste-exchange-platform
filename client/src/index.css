@@ -1,14 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 @layer base {
   :root {
-    --brand-primary: #009E73;
-    --brand-dark: #006B4F;
-    --brand-navy: #172B3A;
-    --bg-light: #F5F8F7;
+    --brand-primary: #009B72;
+    --brand-dark: #087A5A;
+    --brand-light: #E8F7F1;
+    --brand-very-light: #F3FBF7;
+    --brand-navy: #12233F;
+    --bg-page: #F8FAF9;
     --bg-card: #FFFFFF;
-    --border-color: #E1E8E5;
+    --border-color: #DDE7E2;
   }
 
   html {
@@ -17,10 +19,17 @@
   }
 
   body {
-    background-color: #F5F8F7;
-    color: #172B3A;
+    background-color: #F8FAF9;
+    color: #12233F;
     font-family: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
+  }
+
+  /* Consistent Global Form Input Styling */
+  input:focus, select:focus, textarea:focus {
+    border-color: #009B72 !important;
+    outline: none !important;
+    box-shadow: 0 0 0 3px rgba(0, 155, 114, 0.12) !important;
   }
 }
 
@@ -30,20 +39,61 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #F3FBF7;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #C4D7CF;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #009E73;
+  background: #009B72;
 }
 
-/* Utility Card styling */
-.enterprise-card {
+/* Reusable EcoLink Card Utility Classes */
+.ecolink-card {
   background: #ffffff;
-  border: 1px solid #E1E8E5;
+  border: 1px solid #DDE7E2;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(18, 35, 63, 0.03);
+}
+
+.ecolink-field-box {
+  background: #ffffff;
+  border: 1px solid #DDE7E2;
   border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  padding: 10px 14px;
+  transition: all 0.2s ease;
+}
+
+.ecolink-field-box:focus-within {
+  border-color: #009B72;
+  box-shadow: 0 0 0 3px rgba(0, 155, 114, 0.10);
+}
+
+.ecolink-badge-green {
+  background-color: #E8F7F1;
+  color: #087A5A;
+  border: 1px solid rgba(0, 155, 114, 0.25);
+}
+
+.ecolink-btn-primary {
+  background-color: #009B72;
+  color: #ffffff;
+  transition: all 0.2s ease;
+}
+
+.ecolink-btn-primary:hover {
+  background-color: #087A5A;
+  box-shadow: 0 4px 12px rgba(0, 155, 114, 0.20);
+}
+
+.ecolink-btn-secondary {
+  background-color: #ffffff;
+  color: #009B72;
+  border: 1px solid #009B72;
+  transition: all 0.2s ease;
+}
+
+.ecolink-btn-secondary:hover {
+  background-color: #F3FBF7;
 }

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { CANONICAL_CATEGORIES, normalizeCategory } = require('../constants/categories');
 
 const buyerRequirementSchema = new mongoose.Schema({
   buyer: {
@@ -16,32 +17,8 @@ const buyerRequirementSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: [
-      'Plastic',
-      'Metal',
-      'Paper',
-      'Glass',
-      'Rubber',
-      'Textile',
-      'Wood',
-      'E-Waste',
-      'Organic Waste',
-      'Chemical Waste',
-      'Construction Waste',
-      'Fly Ash',
-      'Slag',
-      'Industrial Sludge',
-      'Oil Waste',
-      'Packaging Waste',
-      'Food Processing Waste',
-      'Textile Waste',
-      'Plastic Scrap',
-      'Metal Scrap',
-      'Spent Solvents',
-      'Other Industrial Waste',
-      'Other'
-    ],
-    default: 'Plastic Scrap'
+    enum: CANONICAL_CATEGORIES,
+    default: 'Plastic / Polymers'
   },
   quantity: {
     type: Number,
@@ -106,6 +83,12 @@ const buyerRequirementSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true
+});
+
+buyerRequirementSchema.pre('validate', function() {
+  if (this.category || this.material) {
+    this.category = normalizeCategory(this.category, this.material);
+  }
 });
 
 buyerRequirementSchema.index({ location: '2dsphere' });

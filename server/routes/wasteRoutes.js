@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
+  classifyWasteImage,
   createListing,
   getMyListings,
   getMarketplace,
@@ -16,6 +17,7 @@ router.get('/:id', getListingById);
 
 // Protected routes
 router.use(protect);
+router.post('/classify-image', uploadImageMiddleware('image'), classifyWasteImage);
 router.get('/my/listings', getMyListings);
 router.post('/', uploadImageMiddleware('image'), createListing);
 router.post('/:id/exchange', requestExchange);

@@ -47,6 +47,10 @@ const industrySchema = new mongoose.Schema({
       required: true
     }
   },
+  neededWasteTypes: {
+    type: String,
+    default: ''
+  },
   description: {
     type: String
   },
@@ -61,7 +65,7 @@ const industrySchema = new mongoose.Schema({
   verificationStatus: {
     type: String,
     enum: ['pending', 'verified', 'rejected', 'suspended', 'Pending', 'Verified', 'Rejected', 'Suspended'],
-    default: 'pending'
+    default: 'Pending'
   },
   rejectionReason: {
     type: String,

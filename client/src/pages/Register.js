@@ -22,6 +22,7 @@ export default function Register() {
     city: '',
     contactPhone: '',
     industryType: 'Manufacturing',
+    customIndustryType: '',
     description: ''
   });
 
@@ -48,14 +49,23 @@ export default function Register() {
       return;
     }
 
+    if (formData.industryType === 'Other' && !formData.customIndustryType?.trim()) {
+      setErrorMsg('Please specify your type of industry');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       const assignedRoles = accountType === 'buyer' ? ['buyer'] : accountType === 'seller' ? ['seller'] : ['buyer', 'seller'];
       const businessRole = accountType === 'buyer' ? 'receiver' : accountType === 'seller' ? 'sender' : 'both';
+      const finalIndustryType = formData.industryType === 'Other' && formData.customIndustryType?.trim()
+        ? formData.customIndustryType.trim()
+        : formData.industryType;
 
       const payload = {
         ...formData,
+        industryType: finalIndustryType,
         roles: assignedRoles,
         businessRole
       };
@@ -289,12 +299,12 @@ export default function Register() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-gray-700">Industry Sector</label>
+                <label className="text-xs font-bold uppercase tracking-wider text-gray-700">Industry Sector / Category</label>
                 <select
                   name="industryType"
                   value={formData.industryType}
                   onChange={handleChange}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-300 text-xs text-gray-900 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 font-medium bg-white"
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-300 text-xs text-gray-900 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 font-medium bg-white cursor-pointer"
                 >
                   <option value="Manufacturing">Manufacturing & Engineering</option>
                   <option value="Chemicals & Polymers">Chemicals & Polymers</option>
@@ -303,6 +313,12 @@ export default function Register() {
                   <option value="Recycling & Waste Processing">Recycling & Secondary Processing</option>
                   <option value="Electronics & IT Hardware">Electronics & E-Waste</option>
                   <option value="Textiles & Paper">Textiles & Pulp/Paper</option>
+                  <option value="Food & Agriculture Processing">Food & Agriculture Processing</option>
+                  <option value="Automotive & Transportation">Automotive & Transportation</option>
+                  <option value="Pharmaceuticals & Healthcare">Pharmaceuticals & Healthcare</option>
+                  <option value="Construction & Building Materials">Construction & Building Materials</option>
+                  <option value="Renewable Energy & Power">Renewable Energy & Power</option>
+                  <option value="Other">Other (Specify Custom Industry)</option>
                 </select>
               </div>
 
@@ -324,6 +340,29 @@ export default function Register() {
                 </div>
               </div>
             </div>
+
+            {/* Custom Industry Input when 'Other' is selected */}
+            {formData.industryType === 'Other' && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-1.5 p-3.5 bg-emerald-50/50 border border-emerald-300 rounded-2xl"
+              >
+                <label className="text-xs font-bold uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+                  <FiBriefcase className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Specify Your Type of Industry / Sector</span>
+                </label>
+                <input
+                  type="text"
+                  name="customIndustryType"
+                  value={formData.customIndustryType}
+                  onChange={handleChange}
+                  placeholder="e.g. Bio-fertilizer Manufacturing, Glass Blowing, Battery Recycling, Agro-Processing..."
+                  className="w-full px-4 py-2.5 rounded-xl border border-emerald-400 bg-white text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 font-medium shadow-2xs"
+                  required
+                />
+              </motion.div>
+            )}
           </div>
 
           {/* Section 3: Facility Location */}
@@ -372,22 +411,36 @@ export default function Register() {
               4. Material & Facility Profile
             </h3>
 
-            {accountType === 'receiver' && (
+            {(accountType === 'buyer' || accountType === 'both') && (
               <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-gray-700">Required Secondary Waste Types (Comma Separated)</label>
+                <label className="text-xs font-bold uppercase tracking-wider text-gray-700">Required Secondary Waste Types / Feedstock</label>
                 <input
                   type="text"
                   name="neededWasteTypes"
                   value={formData.neededWasteTypes}
                   onChange={handleChange}
-                  placeholder="e.g. Fly Ash, PET Scrap, Copper Slag, Blast Furnace Slag"
+                  placeholder="e.g. Fly Ash, PET Scrap, Copper Slag, Blast Furnace Slag, E-Waste"
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-300 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 font-medium"
+                />
+              </div>
+            )}
+
+            {(accountType === 'seller' || accountType === 'both') && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-gray-700">Primary Waste / Byproduct Stream Produced</label>
+                <input
+                  type="text"
+                  name="neededWasteTypes"
+                  value={formData.neededWasteTypes}
+                  onChange={handleChange}
+                  placeholder="e.g. Chemical Sludge, Plastic Regrind, Fly Ash, Metal Offcuts"
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-300 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 font-medium"
                 />
               </div>
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-gray-700">Business / Manufacturing Overview</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-gray-700">Company Overview & Facility Description</label>
               <textarea
                 name="description"
                 rows={3}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import API from '../../services/authAPI';
 import AdminLayout from '../../layouts/AdminLayout';
 import Loader from '../../components/Loader';
@@ -6,13 +7,15 @@ import { formatINR } from '../../utils/formatINR';
 import { exportToCSV, exportToPDF } from '../../utils/exportUtils';
 import { 
   FiShoppingBag, FiSearch, FiCheckCircle, 
-  FiXCircle, FiEye, FiCheck, FiX, 
-  FiLayers, FiDollarSign, FiDownload, FiFileText, FiMapPin, FiCalendar, FiShield
+  FiEye, FiCheck, FiX, 
+  FiDownload, FiFileText, FiRefreshCw, FiImage, FiAlertCircle
 } from 'react-icons/fi';
+import { CANONICAL_CATEGORIES, normalizeCategory } from '../../constants/categories';
 
 export default function AdminWasteListings() {
   const [loading, setLoading] = useState(true);
   const [listings, setListings] = useState([]);
+  const [apiError, setApiError] = useState('');
   
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -27,6 +30,9 @@ export default function AdminWasteListings() {
   const [rejectionNote, setRejectionNote] = useState('');
   const [submittingAction, setSubmittingAction] = useState(false);
   
+  // Track broken image URLs
+  const [brokenImages, setBrokenImages] = useState(new Set());
+
   // Toast
   const [notification, setNotification] = useState('');
 
@@ -38,10 +44,16 @@ export default function AdminWasteListings() {
   const fetchListings = async () => {
     try {
       setLoading(true);
+      setApiError('');
       const res = await API.get('/admin/waste-listings');
       setListings(res.data || []);
     } catch (err) {
-      console.warn('Failed to load waste listings:', err.message);
+      console.error('Failed to load waste listings from /api/admin/waste-listings:', err);
+      const msg = err.response?.status === 403 
+        ? 'Access Denied: Admin privileges required to view waste listings. Please log in with an Admin account.'
+        : (err.response?.data?.message || err.message || 'Failed to fetch waste listings from backend database.');
+      setApiError(msg);
+      setListings([]);
     } finally {
       setLoading(false);
     }
@@ -52,23 +64,37 @@ export default function AdminWasteListings() {
   }, []);
 
   const getImageSource = (url) => {
-    if (!url) return null;
-    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
-      return url;
+    if (!url || typeof url !== 'string' || url.trim() === '') return null;
+    const cleanUrl = url.trim();
+    if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://') || cleanUrl.startsWith('data:')) {
+      return cleanUrl;
     }
     const backendHost = 'http://localhost:5000';
-    return `${backendHost}${url.startsWith('/') ? '' : '/'}${url}`;
+    return `${backendHost}${cleanUrl.startsWith('/') ? '' : '/'}${cleanUrl}`;
   };
 
+  const handleImageError = (id) => {
+    setBrokenImages(prev => new Set(prev).add(id));
+  };
+
+  function getNormalizedStatus(status) {
+    const s = (status || '').toLowerCase().trim();
+    if (s === 'pending') return 'Pending';
+    if (s === 'active' || s === 'available' || s === 'approved') return 'Approved';
+    if (s === 'rejected') return 'Rejected';
+    if (s === 'exchanged' || s === 'sold' || s === 'completed' || s === 'recycled' || s === 'in_transit' || s === 'reserved') return 'Exchanged';
+    return 'Pending';
+  }
+
   function getStatusBadge(status) {
-    const s = (status || 'pending').toLowerCase();
-    if (s === 'active' || s === 'available' || s === 'approved') {
+    const norm = getNormalizedStatus(status);
+    if (norm === 'Approved') {
       return { label: 'Approved', style: 'bg-[#EAF8F2] text-[#009B6B] border border-[#009B6B]/30' };
     }
-    if (s === 'rejected') {
+    if (norm === 'Rejected') {
       return { label: 'Rejected', style: 'bg-red-100 text-red-800 border border-red-200' };
     }
-    if (s === 'exchanged' || s === 'completed') {
+    if (norm === 'Exchanged') {
       return { label: 'Exchanged', style: 'bg-blue-100 text-blue-800 border border-blue-200' };
     }
     return { label: 'Pending', style: 'bg-amber-100 text-amber-900 border border-amber-200' };
@@ -79,13 +105,16 @@ export default function AdminWasteListings() {
     return listings.filter(item => {
       // 1. Search Query
       if (searchQuery) {
-        const q = searchQuery.toLowerCase();
+        const q = searchQuery.toLowerCase().trim();
         const matches = 
           (item.name || '').toLowerCase().includes(q) ||
           (item.category || '').toLowerCase().includes(q) ||
           (item.subCategory || '').toLowerCase().includes(q) ||
           (item.uploader?.companyName || '').toLowerCase().includes(q) ||
-          (item.city || '').toLowerCase().includes(q);
+          (item.uploader?.email || '').toLowerCase().includes(q) ||
+          (item.city || '').toLowerCase().includes(q) ||
+          (item.address || '').toLowerCase().includes(q) ||
+          (item.batchId || '').toLowerCase().includes(q);
         if (!matches) return false;
       }
 
@@ -96,13 +125,10 @@ export default function AdminWasteListings() {
         if (!cat.includes(target) && !(item.name || '').toLowerCase().includes(target)) return false;
       }
 
-      // 3. Status Filter
+      // 3. Status Filter (All, Pending, Approved, Rejected, Exchanged)
       if (statusFilter !== 'All') {
-        const s = (item.status || 'pending').toLowerCase();
-        if (statusFilter === 'Approved' && !(s === 'active' || s === 'available' || s === 'approved')) return false;
-        if (statusFilter === 'Pending' && !(s === 'pending')) return false;
-        if (statusFilter === 'Rejected' && !(s === 'rejected')) return false;
-        if (statusFilter === 'Exchanged' && !(s === 'exchanged' || s === 'completed')) return false;
+        const norm = getNormalizedStatus(item.status);
+        if (statusFilter !== norm) return false;
       }
 
       return true;
@@ -111,6 +137,7 @@ export default function AdminWasteListings() {
       if (sortOrder === 'Oldest First') return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
       if (sortOrder === 'Highest Quantity') return (b.quantity || 0) - (a.quantity || 0);
       if (sortOrder === 'Highest Price') return (b.price || 0) - (a.price || 0);
+      if (sortOrder === 'Name A-Z') return (a.name || '').localeCompare(b.name || '');
       return 0;
     });
   }, [listings, searchQuery, categoryFilter, statusFilter, sortOrder]);
@@ -121,11 +148,11 @@ export default function AdminWasteListings() {
     setSubmittingAction(true);
     try {
       await API.patch(`/admin/waste-listings/${confirmApproveListing._id}/status`, { status: 'active' });
-      showNotification('Listing approved successfully.');
+      showNotification(`"${confirmApproveListing.name}" approved successfully.`);
       setConfirmApproveListing(null);
       await fetchListings();
     } catch (err) {
-      alert(err.message || 'Failed to approve listing.');
+      alert(err.response?.data?.message || err.message || 'Failed to approve listing.');
     } finally {
       setSubmittingAction(false);
     }
@@ -140,12 +167,12 @@ export default function AdminWasteListings() {
         status: 'rejected', 
         note: rejectionNote 
       });
-      showNotification('Listing rejected.');
+      showNotification(`"${rejectListing.name}" rejected.`);
       setRejectListing(null);
       setRejectionNote('');
       await fetchListings();
     } catch (err) {
-      alert(err.message || 'Failed to reject listing.');
+      alert(err.response?.data?.message || err.message || 'Failed to reject listing.');
     } finally {
       setSubmittingAction(false);
     }
@@ -159,8 +186,8 @@ export default function AdminWasteListings() {
       { label: 'Seller Facility', key: (w) => w.uploader?.companyName || 'N/A' },
       { label: 'Quantity', key: (w) => `${w.quantity || 0} ${w.unit || 'kg'}` },
       { label: 'Quality Grade', key: (w) => w.qualityGrade || 'Grade A' },
-      { label: 'Price (INR/kg)', key: (w) => `₹${w.price || 0}` },
-      { label: 'Location', key: (w) => w.city || 'Regional Hub' },
+      { label: 'Price', key: (w) => `₹${w.price || 0}` },
+      { label: 'Location', key: (w) => `${w.city || ''}, ${w.address || ''}` },
       { label: 'Status', key: (w) => getStatusBadge(w.status).label },
       { label: 'Listed Date', key: (w) => w.createdAt ? new Date(w.createdAt).toLocaleDateString() : 'N/A' }
     ];
@@ -202,15 +229,29 @@ export default function AdminWasteListings() {
         {/* Header */}
         <div className="bg-white p-6 rounded-3xl border border-[#DDE7E2] shadow-2xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-black text-[#12233F] tracking-tight">
-              Waste Listings
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl sm:text-3xl font-black text-[#12233F] tracking-tight">
+                Waste Listings
+              </h1>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-[#EAF8F2] text-[#009B6B] border border-[#009B6B]/30">
+                {filteredListings.length} Listings
+              </span>
+            </div>
             <p className="text-xs text-[#5F6B7A] font-medium mt-1">
-              Review, approve, and moderate industrial byproduct streams before public marketplace visibility.
+              Review, verify images, and moderate industrial byproduct streams before public marketplace availability.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={fetchListings}
+              disabled={loading}
+              className="px-3.5 py-2 rounded-xl border border-[#DDE7E2] bg-white hover:bg-[#F6F8F7] text-[#12233F] text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+              title="Refresh database listings"
+            >
+              <FiRefreshCw className={`w-3.5 h-3.5 text-[#009B6B] ${loading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
             <button
               onClick={handleExportCSV}
               className="px-3.5 py-2 rounded-xl border border-[#DDE7E2] bg-white hover:bg-[#F6F8F7] text-[#12233F] text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
@@ -227,6 +268,24 @@ export default function AdminWasteListings() {
             </button>
           </div>
         </div>
+
+        {/* API Error Alert */}
+        {apiError && (
+          <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-xs font-bold flex items-start gap-3">
+            <FiAlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <div className="font-extrabold text-red-900">Database Connection / Authorization Issue</div>
+              <p className="font-medium text-red-700">{apiError}</p>
+              {apiError.includes('Access Denied') && (
+                <div className="pt-1">
+                  <Link to="/login" className="inline-flex items-center gap-1 text-xs font-bold text-red-900 underline">
+                    Log in with an Admin account &rarr;
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Notification Toast */}
         {notification && (
@@ -249,7 +308,7 @@ export default function AdminWasteListings() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search material, seller, city..."
+                placeholder="Search material, seller, batch, city..."
                 className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-[#DDE7E2] text-xs text-[#12233F] placeholder-gray-400 focus:outline-none focus:border-[#009B6B] focus:ring-1 focus:ring-[#009B6B] font-medium bg-[#F6F8F7]"
               />
             </div>
@@ -262,17 +321,13 @@ export default function AdminWasteListings() {
                 className="w-full px-3.5 py-2.5 rounded-2xl border border-[#DDE7E2] text-xs text-[#12233F] focus:outline-none focus:border-[#009B6B] font-bold bg-[#F6F8F7] cursor-pointer"
               >
                 <option value="All">Category: All</option>
-                <option value="Plastic">Plastic</option>
-                <option value="Metal">Metal</option>
-                <option value="Paper">Paper</option>
-                <option value="Textile">Textile</option>
-                <option value="Glass">Glass</option>
-                <option value="Fly Ash">Fly Ash</option>
-                <option value="E-Waste">E-Waste</option>
+                {CANONICAL_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
               </select>
             </div>
 
-            {/* Status Filter */}
+            {/* Status Filter (Pending, Approved, Rejected, Exchanged) */}
             <div>
               <select
                 value={statusFilter}
@@ -280,8 +335,8 @@ export default function AdminWasteListings() {
                 className="w-full px-3.5 py-2.5 rounded-2xl border border-[#DDE7E2] text-xs text-[#12233F] focus:outline-none focus:border-[#009B6B] font-bold bg-[#F6F8F7] cursor-pointer"
               >
                 <option value="All">Status: All</option>
-                <option value="Approved">Approved (Active)</option>
                 <option value="Pending">Pending Moderation</option>
+                <option value="Approved">Approved (Marketplace Active)</option>
                 <option value="Rejected">Rejected</option>
                 <option value="Exchanged">Exchanged</option>
               </select>
@@ -298,6 +353,7 @@ export default function AdminWasteListings() {
                 <option value="Oldest First">Sort: Oldest First</option>
                 <option value="Highest Quantity">Sort: Highest Quantity</option>
                 <option value="Highest Price">Sort: Highest Price</option>
+                <option value="Name A-Z">Sort: Name A-Z</option>
               </select>
             </div>
 
@@ -315,7 +371,7 @@ export default function AdminWasteListings() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-[#F6F8F7] border-b border-[#DDE7E2] text-[11px] font-extrabold text-[#5F6B7A] uppercase tracking-wider">
-                    <th className="py-4 px-4">Material</th>
+                    <th className="py-4 px-4">Material Stream</th>
                     <th className="py-4 px-4">Category</th>
                     <th className="py-4 px-4">Seller Facility</th>
                     <th className="py-4 px-4">Quantity</th>
@@ -327,45 +383,84 @@ export default function AdminWasteListings() {
                 </thead>
                 <tbody className="divide-y divide-[#DDE7E2]/60 font-medium text-[#12233F]">
                   {filteredListings.map((item) => {
+                    const normStatus = getNormalizedStatus(item.status);
                     const badge = getStatusBadge(item.status);
-                    const isPending = badge.label === 'Pending';
-                    const isApproved = badge.label === 'Approved';
+                    const rawImgSrc = getImageSource(item.imageUrl);
+                    const isBroken = brokenImages.has(item._id);
+                    const hasValidImg = rawImgSrc && !isBroken;
 
                     return (
                       <tr key={item._id} className="hover:bg-[#F6F8F7]/80 transition-colors">
-                        <td className="py-4 px-4">
-                          <div className="font-extrabold text-[#12233F]">{item.name}</div>
-                          <div className="text-[11px] text-[#5F6B7A] font-mono">
-                            Batch: {item.batchId || 'EL-BATCH-001'} &bull; {item.city || 'Regional'}
+                        
+                        {/* Material Stream with Image Thumbnail */}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-3">
+                            {/* Image Box */}
+                            <div className="w-12 h-12 rounded-xl bg-gray-100 border border-[#DDE7E2] shrink-0 overflow-hidden flex items-center justify-center relative">
+                              {hasValidImg ? (
+                                <img
+                                  src={rawImgSrc}
+                                  alt={item.name}
+                                  onError={() => handleImageError(item._id)}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex flex-col items-center justify-center text-gray-400 p-1 text-center">
+                                  <FiImage className="w-4 h-4 text-gray-400" />
+                                  <span className="text-[8px] font-bold uppercase text-gray-400 leading-none mt-0.5">No img</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div>
+                              <div className="font-extrabold text-[#12233F]">{item.name}</div>
+                              <div className="text-[11px] text-[#5F6B7A] font-mono">
+                                Batch: {item.batchId || 'EL-BATCH-001'} &bull; {item.city || 'Regional'}
+                              </div>
+                            </div>
                           </div>
                         </td>
-                        <td className="py-4 px-4">
+
+                        {/* Category */}
+                        <td className="py-3 px-4">
                           <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-[#EAF8F2] text-[#009B6B] border border-[#009B6B]/30">
                             {item.category || 'Secondary Material'}
                           </span>
                         </td>
-                        <td className="py-4 px-4">
-                          <div className="font-bold text-[#12233F]">{item.uploader?.companyName || 'Apex Plastics'}</div>
+
+                        {/* Seller Facility */}
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-[#12233F]">{item.uploader?.companyName || 'Industrial Generator'}</div>
                           <div className="text-[11px] text-[#5F6B7A] font-mono">{item.uploader?.email || 'N/A'}</div>
                         </td>
-                        <td className="py-4 px-4 font-bold text-[#12233F]">
+
+                        {/* Quantity */}
+                        <td className="py-3 px-4 font-bold text-[#12233F]">
                           {item.quantity} {item.unit || 'kg'}
                         </td>
-                        <td className="py-4 px-4">
+
+                        {/* Quality Grade */}
+                        <td className="py-3 px-4">
                           <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[#F6F8F7] border border-[#DDE7E2] text-[#12233F]">
                             {item.qualityGrade || 'Grade A'}
                           </span>
                         </td>
-                        <td className="py-4 px-4 font-extrabold text-[#009B6B]">
+
+                        {/* Price */}
+                        <td className="py-3 px-4 font-extrabold text-[#009B6B]">
                           ₹{item.price} / {item.unit || 'kg'}
                         </td>
-                        <td className="py-4 px-4">
+
+                        {/* Status Badge */}
+                        <td className="py-3 px-4">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${badge.style}`}>
                             {badge.label}
                           </span>
                         </td>
-                        <td className="py-4 px-4 text-right space-x-1.5 whitespace-nowrap">
-                          {/* VIEW BUTTON */}
+
+                        {/* Context-Dependent Actions */}
+                        <td className="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
+                          {/* 1. VIEW BUTTON (Available for all statuses) */}
                           <button
                             onClick={() => setViewListing(item)}
                             className="px-2.5 py-1.5 rounded-xl bg-[#F6F8F7] hover:bg-[#EAF8F2] text-[#12233F] hover:text-[#009B6B] font-bold text-xs transition-all border border-[#DDE7E2] cursor-pointer inline-flex items-center gap-1"
@@ -375,22 +470,24 @@ export default function AdminWasteListings() {
                             <span>View</span>
                           </button>
 
-                          {/* APPROVE BUTTON (If Pending or Rejected) */}
-                          {!isApproved && (
+                          {/* 2. APPROVE BUTTON (Only when PENDING) */}
+                          {normStatus === 'Pending' && (
                             <button
                               onClick={() => setConfirmApproveListing(item)}
                               className="px-3 py-1.5 rounded-xl bg-[#009B6B] hover:bg-emerald-700 text-white font-bold text-xs transition-all shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                              title="Approve Listing for Marketplace"
                             >
                               <FiCheck className="w-3.5 h-3.5" />
                               <span>Approve</span>
                             </button>
                           )}
 
-                          {/* REJECT BUTTON (If Pending or Approved) */}
-                          {badge.label !== 'Rejected' && (
+                          {/* 3. REJECT BUTTON (When PENDING or APPROVED) */}
+                          {(normStatus === 'Pending' || normStatus === 'Approved') && (
                             <button
                               onClick={() => { setRejectListing(item); setRejectionNote(''); }}
                               className="px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs transition-all border border-gray-300 cursor-pointer inline-flex items-center gap-1"
+                              title="Reject Listing"
                             >
                               <FiX className="w-3.5 h-3.5 text-gray-500" />
                               <span>Reject</span>
@@ -440,20 +537,27 @@ export default function AdminWasteListings() {
               </div>
 
               {/* Uploaded Material Photo */}
-              <div className="h-56 rounded-2xl overflow-hidden bg-[#F6F8F7] border border-[#DDE7E2] flex items-center justify-center">
+              <div className="h-56 rounded-2xl overflow-hidden bg-[#F6F8F7] border border-[#DDE7E2] flex items-center justify-center relative">
                 {(() => {
-                  const resolvedImg = getImageSource(viewListing.imageUrl || viewListing.image || viewListing.imagePath);
-                  return resolvedImg ? (
-                    <img
-                      src={resolvedImg}
-                      alt={viewListing.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-gray-400 p-4">
-                      <FiShield className="w-10 h-10 text-[#009B6B]/40 mb-1" />
-                      <span className="text-xs font-bold text-gray-600">No image uploaded</span>
-                      <span className="text-[10px] text-gray-400">Verified stream specification</span>
+                  const resolvedImg = getImageSource(viewListing.imageUrl);
+                  const isBroken = brokenImages.has(viewListing._id);
+                  if (resolvedImg && !isBroken) {
+                    return (
+                      <img
+                        src={resolvedImg}
+                        alt={viewListing.name}
+                        onError={() => handleImageError(viewListing._id)}
+                        className="w-full h-full object-cover"
+                      />
+                    );
+                  }
+                  return (
+                    <div className="flex flex-col items-center justify-center text-gray-400 space-y-2 p-6 text-center">
+                      <div className="w-12 h-12 rounded-2xl bg-gray-200 flex items-center justify-center text-gray-500">
+                        <FiImage className="w-6 h-6" />
+                      </div>
+                      <span className="text-xs font-bold text-gray-500">No material image uploaded</span>
+                      <span className="text-[11px] text-gray-400">Stream cataloged with verified technical manifest</span>
                     </div>
                   );
                 })()}
@@ -461,47 +565,86 @@ export default function AdminWasteListings() {
 
               {/* Listing Details Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                
+                {/* 1. Material */}
                 <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
-                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Seller Company</span>
-                  <div className="font-bold text-[#12233F]">{viewListing.uploader?.companyName || 'Apex Plastics Pvt. Ltd.'}</div>
+                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Material Name</span>
+                  <div className="font-bold text-[#12233F]">{viewListing.name}</div>
                 </div>
 
+                {/* 2. Category */}
                 <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
-                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Quantity Available</span>
+                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Material Category</span>
+                  <div className="font-bold text-[#12233F]">{viewListing.category} ({viewListing.subCategory || 'Industrial Stream'})</div>
+                </div>
+
+                {/* 3. Seller */}
+                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
+                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Seller Facility</span>
+                  <div className="font-bold text-[#12233F]">{viewListing.uploader?.companyName || 'Industrial Facility'}</div>
+                  <div className="text-[10px] text-[#5F6B7A] font-mono">{viewListing.uploader?.email || 'N/A'}</div>
+                </div>
+
+                {/* 4. Quantity */}
+                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
+                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Available Quantity</span>
                   <div className="font-bold text-[#12233F]">{viewListing.quantity} {viewListing.unit || 'kg'}</div>
                 </div>
 
+                {/* 5. Quality Grade */}
                 <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
-                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Quality Grade</span>
-                  <div className="font-bold text-[#12233F]">{viewListing.qualityGrade || 'Grade A'}</div>
-                </div>
-
-                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
-                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Asking Price</span>
-                  <div className="font-extrabold text-[#009B6B]">₹{viewListing.price} / {viewListing.unit || 'kg'}</div>
-                </div>
-
-                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
-                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Storage Location</span>
-                  <div className="font-bold text-[#12233F]">{viewListing.city || 'Regional Hub'}, {viewListing.address || 'Industrial Area'}</div>
-                </div>
-
-                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
-                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Upload Date</span>
+                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Quality Grade / Purity</span>
                   <div className="font-bold text-[#12233F]">
-                    {viewListing.createdAt ? new Date(viewListing.createdAt).toLocaleDateString() : 'N/A'}
+                    {viewListing.qualityGrade || 'Grade A'} &bull; {viewListing.purity?.estimated || 90}% Purity
                   </div>
                 </div>
+
+                {/* 6. Price */}
+                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
+                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Listing Price</span>
+                  <div className="font-bold text-[#009B6B] text-sm">₹{viewListing.price} / {viewListing.unit || 'kg'}</div>
+                </div>
+
+                {/* 7. Location */}
+                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
+                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Facility Location</span>
+                  <div className="font-bold text-[#12233F]">{viewListing.address || 'Industrial Zone'}, {viewListing.city || 'Regional Hub'}</div>
+                </div>
+
+                {/* 8. Listing Status & Exchange Status */}
+                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1">
+                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Listing & Exchange Status</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${getStatusBadge(viewListing.status).style}`}>
+                      {getStatusBadge(viewListing.status).label}
+                    </span>
+                    {viewListing.exchangeInfo && (
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                        Order #{viewListing.exchangeInfo.orderId || 'Active'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 9. Created Date */}
+                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1 sm:col-span-2">
+                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Listing Creation Date</span>
+                  <div className="font-bold text-[#12233F]">
+                    {viewListing.createdAt ? new Date(viewListing.createdAt).toLocaleString() : 'N/A'}
+                  </div>
+                </div>
+
+                {/* 10. Description */}
+                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1 sm:col-span-2">
+                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Material Description</span>
+                  <p className="text-[#12233F] leading-relaxed bg-white p-2.5 rounded-xl border border-[#DDE7E2]">
+                    {viewListing.description || 'No detailed stream notes provided by generator.'}
+                  </p>
+                </div>
+
               </div>
 
-              {viewListing.description && (
-                <div className="p-3 bg-[#F6F8F7] rounded-2xl space-y-1 text-xs">
-                  <span className="font-extrabold text-[#5F6B7A] uppercase tracking-wider text-[10px]">Material Description</span>
-                  <p className="text-[#12233F] font-medium leading-relaxed">{viewListing.description}</p>
-                </div>
-              )}
-
-              {/* Close Button */}
+              {/* Action Buttons in Modal */}
               <div className="flex justify-end gap-3 pt-4 border-t border-[#DDE7E2]">
                 <button
                   onClick={() => setViewListing(null)}
@@ -524,9 +667,9 @@ export default function AdminWasteListings() {
               <div className="w-12 h-12 rounded-2xl bg-[#EAF8F2] text-[#009B6B] flex items-center justify-center mx-auto text-xl font-bold">
                 <FiCheck className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-black text-[#12233F]">Approve this material listing?</h3>
+              <h3 className="text-lg font-black text-[#12233F]">Approve this listing?</h3>
               <p className="text-xs text-[#5F6B7A] font-medium leading-relaxed">
-                Approving <strong>{confirmApproveListing.name}</strong> ({confirmApproveListing.quantity} {confirmApproveListing.unit || 'kg'}) will make it immediately searchable in the marketplace.
+                Approving <strong>{confirmApproveListing.name}</strong> will publish it to the active B2B secondary materials marketplace for buyers to request exchanges.
               </p>
               <div className="flex gap-3 pt-2">
                 <button
@@ -559,20 +702,20 @@ export default function AdminWasteListings() {
                   <FiX className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-[#12233F]">Reject Listing</h3>
+                  <h3 className="text-base font-black text-[#12233F]">Reject Waste Listing</h3>
                   <p className="text-[11px] text-[#5F6B7A] font-medium">{rejectListing.name}</p>
                 </div>
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-[11px] font-extrabold uppercase tracking-wider text-[#5F6B7A]">
-                  Rejection Reason:
+                  Rejection Reason / Note:
                 </label>
                 <textarea
                   rows="3"
                   value={rejectionNote}
                   onChange={(e) => setRejectionNote(e.target.value)}
-                  placeholder="e.g. Unverified chemical hazard, excessive contamination, incorrect purity..."
+                  placeholder="e.g. Uncertified hazardous waste, invalid purity specifications, pricing mismatch..."
                   className="w-full p-3 bg-[#F6F8F7] border border-[#DDE7E2] rounded-2xl text-xs font-medium focus:outline-none focus:border-red-500 text-[#12233F]"
                 />
               </div>

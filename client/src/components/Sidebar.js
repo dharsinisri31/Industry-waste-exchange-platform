@@ -51,7 +51,7 @@ export default function Sidebar() {
   const sellerLinks = [
     { to: '/dashboard', label: 'Dashboard', icon: FiHome },
     { to: '/upload-waste', label: 'Upload Waste', icon: FiUploadCloud },
-    { to: '/marketplace', label: 'Marketplace', icon: FiShoppingBag },
+    { to: '/seller/my-waste-listings', label: 'My Waste Listings', icon: FiLayers },
     { to: '/recommendations', label: 'Smart Matching', icon: FiZap },
     { to: '/traceability', label: 'Exchanges', icon: FiActivity },
     { to: '/payments', label: 'Sales & Payments', icon: FiDollarSign },
@@ -107,15 +107,19 @@ export default function Sidebar() {
                 key={link.to}
                 to={link.to}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-3.5 py-2.5 text-xs font-semibold rounded-xl transition-all ${
+                  `flex items-center gap-3 px-3.5 py-2.5 text-xs rounded-xl transition-all ${
                     isActive
-                      ? 'bg-[#E8F7F1] text-[#009B6B] border border-[#DDE7E2] shadow-2xs font-extrabold'
-                      : 'text-[#12233F]/80 hover:bg-[#F7FAF8] hover:text-[#12233F] border border-transparent'
+                      ? 'bg-[#E8F7F1] text-[#087A5A] border-l-4 border-l-[#087A5A] border-t border-r border-b border-[#DDE7E2] shadow-2xs font-black'
+                      : 'text-[#12233F]/80 hover:bg-[#F3FBF7] hover:text-[#009B72] border border-transparent font-medium'
                   }`
                 }
               >
-                <Icon className="w-4 h-4 text-[#009B6B] shrink-0" />
-                <span className="truncate">{link.label}</span>
+                {({ isActive }) => (
+                  <>
+                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#009B72]' : 'text-gray-400'}`} />
+                    <span className="truncate">{link.label}</span>
+                  </>
+                )}
               </NavLink>
             );
           })}
@@ -124,18 +128,18 @@ export default function Sidebar() {
           <div className="pt-2 mt-2 border-t border-[#DDE7E2]">
             <button
               onClick={() => setShowNotificationDrawer(!showNotificationDrawer)}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 text-xs rounded-xl transition-all cursor-pointer ${
                 showNotificationDrawer
-                  ? 'bg-[#E8F7F1] text-[#009B6B] border border-[#DDE7E2] font-extrabold'
-                  : 'text-[#12233F]/80 hover:bg-[#F7FAF8] hover:text-[#12233F] border border-transparent'
+                  ? 'bg-[#E8F7F1] text-[#087A5A] border-l-4 border-l-[#087A5A] border-t border-r border-b border-[#DDE7E2] font-black'
+                  : 'text-[#12233F]/80 hover:bg-[#F3FBF7] hover:text-[#009B72] border border-transparent font-medium'
               }`}
             >
               <div className="flex items-center gap-3">
-                <FiBell className="w-4 h-4 text-[#009B6B] shrink-0" />
+                <FiBell className={`w-4 h-4 shrink-0 ${showNotificationDrawer ? 'text-[#009B72]' : 'text-gray-400'}`} />
                 <span>Notifications</span>
               </div>
               {unreadCount > 0 ? (
-                <span className="px-2 py-0.5 text-[10px] font-black rounded-full bg-[#009B6B] text-white flex items-center gap-1">
+                <span className="px-2 py-0.5 text-[10px] font-black rounded-full bg-[#009B72] text-white flex items-center gap-1">
                   <span>●</span> {unreadCount}
                 </span>
               ) : (

@@ -7,6 +7,7 @@ import {
   FiLayers, FiSearch, FiCheckCircle, 
   FiEye, FiCheck, FiSlash, FiX, FiMapPin, FiCalendar, FiDollarSign 
 } from 'react-icons/fi';
+import { CANONICAL_CATEGORIES, normalizeCategory } from '../../constants/categories';
 
 export default function AdminMaterialRequirements() {
   const [loading, setLoading] = useState(true);
@@ -132,20 +133,17 @@ export default function AdminMaterialRequirements() {
               />
             </div>
 
-            {/* Material Filter */}
+            {/* Category / Material Filter */}
             <div>
               <select
                 value={materialFilter}
                 onChange={(e) => setMaterialFilter(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-2xl border border-[#DDE7E2] text-xs text-[#12233F] focus:outline-none focus:border-[#009B6B] font-bold bg-[#F6F8F7] cursor-pointer"
               >
-                <option value="All">Material: All</option>
-                <option value="Plastic">Plastic / Polymer</option>
-                <option value="Metal">Metal / Scrap</option>
-                <option value="Paper">Paper / Cardboard</option>
-                <option value="Textile">Textile Waste</option>
-                <option value="Glass">Glass Cullet</option>
-                <option value="Fly Ash">Fly Ash</option>
+                <option value="All">Category: All</option>
+                {CANONICAL_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
               </select>
             </div>
 

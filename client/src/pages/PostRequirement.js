@@ -4,6 +4,7 @@ import DashboardLayout from '../layouts/DashboardLayout';
 import { apiPost } from '../services/api';
 import { FiPlus, FiCheckCircle, FiAlertCircle } from 'react-icons/fi';
 import { formatINR } from '../utils/formatINR';
+import { CANONICAL_CATEGORIES, normalizeCategory } from '../constants/categories';
 
 export default function PostRequirement() {
   const navigate = useNavigate();
@@ -11,8 +12,8 @@ export default function PostRequirement() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const [material, setMaterial] = useState('PET Plastic Scrap');
-  const [category, setCategory] = useState('Plastic Scrap');
+  const [material, setMaterial] = useState('Steel Scrap');
+  const [category, setCategory] = useState('Metal Scrap');
   const [quantity, setQuantity] = useState('500');
   const [unit, setUnit] = useState('kg');
   const [minPurity, setMinPurity] = useState('95');
@@ -22,26 +23,10 @@ export default function PostRequirement() {
   const [city, setCity] = useState('Tiruppur');
   const [radiusKm, setRadiusKm] = useState('100');
   const [requiredDate, setRequiredDate] = useState('');
-  const [application, setApplication] = useState('Recycled polymer production & pelletizing');
-  const [specifications, setSpecifications] = useState('Clean washed scrap, moisture content below 2%');
+  const [application, setApplication] = useState('Secondary raw material procurement for industrial production.');
+  const [specifications, setSpecifications] = useState('Clean sorted scrap, contamination below 3%');
 
-  const categories = [
-    'Plastic Scrap',
-    'PET',
-    'HDPE',
-    'PP',
-    'Metal Scrap',
-    'Aluminium',
-    'Steel',
-    'Copper',
-    'Fly Ash',
-    'Slag',
-    'Glass',
-    'Paper',
-    'Textile',
-    'Spent Solvents',
-    'Other'
-  ];
+  const categories = CANONICAL_CATEGORIES;
 
   const handleSubmit = async (e) => {
     e.preventDefault();

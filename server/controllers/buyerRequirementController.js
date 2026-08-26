@@ -3,6 +3,7 @@ const Waste = require('../models/Waste');
 const Industry = require('../models/Industry');
 const calculateDistance = require('../utils/calculateDistance');
 const { predictPrice } = require('../services/aiService');
+const { normalizeCategory } = require('../constants/categories');
 
 // @desc    Create a new buyer material requirement
 // @route   POST /api/buyer-requirements
@@ -42,11 +43,14 @@ const createRequirement = async (req, res) => {
       }
     }
 
+    const materialName = material || 'Steel Scrap';
+    const canonicalCategory = normalizeCategory(category, materialName);
+
     const requirement = await BuyerRequirement.create({
       buyer: req.user._id,
       companyProfile: userProfile ? userProfile._id : null,
-      material: material || category || 'PET Plastic Scrap',
-      category: category || 'Plastic Scrap',
+      material: materialName,
+      category: canonicalCategory,
       quantity: parseFloat(quantity) || 500,
       unit: unit || 'kg',
       minPurity: minPurity ? parseFloat(minPurity) : 90.0,
@@ -198,22 +202,42 @@ const getMatchedSuppliers = async (req, res) => {
 
     const reqCoords = requirement.location?.coordinates || [77.5946, 12.9716];
 
-    // Find active waste listings
+    // Find active/approved waste listings
     const activeWasteListings = await Waste.find({
-      status: { $in: ['active', 'available'] }
-    }).populate('uploader', 'companyName email address city');
+      status: { $in: ['active', 'available', 'approved'] }
+    }).populate('uploader', 'email role roles isVerified');
+
+    const uploaderIds = activeWasteListings.map(w => w.uploader?._id || w.uploader).filter(Boolean);
+    const industries = await Industry.find({ user: { $in: uploaderIds } }).select('user companyName city address isVerified verificationStatus');
+    const industryMap = new Map();
+    industries.forEach(ind => industryMap.set(ind.user.toString(), ind));
 
     const matchedSuppliers = activeWasteListings.map(waste => {
       const wasteCoords = waste.location?.coordinates || [77.5946, 12.9716];
       const distKm = parseFloat(calculateDistance(reqCoords, wasteCoords).toFixed(1));
 
+      const uId = waste.uploader?._id ? waste.uploader._id.toString() : (waste.uploader ? waste.uploader.toString() : '');
+      const indProfile = industryMap.get(uId);
+      const supplierCompanyName = indProfile?.companyName || 'Precision Cast Iron & Foundry';
+      const supplierCity = indProfile?.city || waste.city || 'Coimbatore';
+      const isVerifiedSupplier = indProfile ? (indProfile.verificationStatus === 'Verified' || indProfile.isVerified) : true;
+
       // 5-Criteria Weighted Scoring for Buyer Sourcing
       // 1. Material (40%): exact category or keyword match
-      const isCategoryMatch = waste.category === requirement.category || waste.name.toLowerCase().includes(requirement.material.toLowerCase());
-      const materialScore = isCategoryMatch ? 100 : 40;
+      const reqMatLower = (requirement.material || '').toLowerCase();
+      const wasteNameLower = (waste.name || '').toLowerCase();
+      const isExactMaterialMatch = wasteNameLower.includes(reqMatLower) || reqMatLower.includes(wasteNameLower);
+      const isCategoryMatch = waste.category === requirement.category;
+      
+      let materialScore = 40;
+      if (isExactMaterialMatch) {
+        materialScore = 100;
+      } else if (isCategoryMatch) {
+        materialScore = 80;
+      }
 
       // 2. Quality/Purity (20%): compares waste purity vs requirement minPurity
-      const wastePurity = waste.purity?.estimated || 94.5;
+      const wastePurity = waste.purity?.estimated || (waste.qualityGrade === 'Grade A' ? 98.2 : 94.5);
       const qualityScore = wastePurity >= requirement.minPurity ? 100 : Math.max(0, 100 - (requirement.minPurity - wastePurity) * 5);
 
       // 3. Quantity Match (15%): capacity adequacy
@@ -248,25 +272,54 @@ const getMatchedSuppliers = async (req, res) => {
         : 'Above Budget';
 
       const reasons = [];
-      if (isCategoryMatch) reasons.push(`${waste.category} matches required ${requirement.material}`);
-      if (wastePurity >= requirement.minPurity) reasons.push(`Purity (${wastePurity}%) meets required minimum (${requirement.minPurity}%)`);
-      if (qtyRatio >= 0.8) reasons.push(`Available quantity (${waste.quantity} ${waste.unit}) is sufficient`);
-      if (isBelowMaxPrice) reasons.push(`Asking price (${waste.price} ₹/${waste.unit}) is below max budget (₹${requirement.maxPrice})`);
-      if (distKm <= 100) reasons.push(`Supplier is geographically close (${distKm} km)`);
-      if (netCarbonSavedKg > 100) reasons.push(`High carbon reduction potential (${netCarbonSavedKg} kg CO₂e avoided)`);
+      if (isExactMaterialMatch) {
+        reasons.push(`${waste.name} exactly matches required ${requirement.material}`);
+      } else if (isCategoryMatch) {
+        reasons.push(`${waste.category} matches required ${requirement.material}`);
+      } else {
+        reasons.push(`Secondary resource stream compatible with ${requirement.material}`);
+      }
+
+      if (wastePurity >= requirement.minPurity) {
+        reasons.push(`Purity (${wastePurity}%) meets required minimum (${requirement.minPurity}%)`);
+      } else {
+        reasons.push(`Purity (${wastePurity}%) suitable for secondary feedstock processing`);
+      }
+
+      if (waste.quantity >= requirement.quantity) {
+        reasons.push(`Available quantity (${waste.quantity.toLocaleString()} ${waste.unit}) is sufficient for the requested ${requirement.quantity.toLocaleString()} ${requirement.unit || 'kg'}`);
+      } else {
+        reasons.push(`Available quantity (${waste.quantity.toLocaleString()} ${waste.unit}) provides partial fulfillment`);
+      }
+
+      if (isBelowMaxPrice) {
+        reasons.push(`Asking price (₹${waste.price}/${waste.unit}) is below maximum budget (₹${requirement.maxPrice}/${requirement.unit || 'kg'})`);
+      } else {
+        reasons.push(`Asking price (₹${waste.price}/${waste.unit}) is within commercial negotiation margin`);
+      }
+
+      if (distKm <= (requirement.radiusKm || 200)) {
+        reasons.push(`Transit distance (${distKm} km) is within the preferred search radius (${requirement.radiusKm || 200} km)`);
+      } else {
+        reasons.push(`Logistics corridor (${distKm} km) viable with direct regional transport`);
+      }
 
       return {
         wasteId: waste._id,
-        supplierName: waste.uploader?.companyName || waste.name,
+        supplierName: supplierCompanyName,
+        supplierCity,
+        isVerifiedSupplier,
         material: waste.name,
         category: waste.category,
         availableQuantity: waste.quantity,
-        unit: waste.unit,
+        unit: waste.unit || 'kg',
         price: waste.price,
         maxPriceBudget: requirement.maxPrice,
         priceEvaluation,
         distanceKm: distKm,
         compatibilityScore,
+        purity: wastePurity,
+        qualityGrade: waste.qualityGrade || 'Grade A',
         estimatedTransportCostInr: transportCostInr,
         estimatedTransportCo2Kg: transportCo2Kg,
         netCarbonSavedKg,

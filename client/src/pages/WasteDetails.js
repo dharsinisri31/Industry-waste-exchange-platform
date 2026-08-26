@@ -21,13 +21,15 @@ export default function WasteDetails() {
   const [bidAmount, setBidAmount] = useState('');
   const [bidding, setBidding] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+  const [imageError, setImageError] = useState(false);
 
   const fetchDetails = async () => {
     try {
       setLoading(true);
+      setImageError(false);
       const data = await getListingDetails(id);
       setWaste(data);
-      if (data.pricingMode === 'auction') {
+      if (data && data.pricingMode === 'auction') {
         const minNext = (data.auctionInfo?.currentBid || data.price || 0) + (data.auctionInfo?.minIncrement || 1);
         setBidAmount(minNext);
       }
@@ -73,9 +75,6 @@ export default function WasteDetails() {
     }
   };
 
-  if (loading) return <DashboardLayout><Loader /></DashboardLayout>;
-  if (!waste) return <DashboardLayout><div className="p-8 text-center text-gray-600 font-medium">Resource listing not found.</div></DashboardLayout>;
-
   const getImageSource = (url) => {
     if (!url) return null;
     if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
@@ -85,9 +84,43 @@ export default function WasteDetails() {
     return `${backendHost}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center p-20 space-y-3 font-sans">
+          <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs font-bold text-gray-700">Loading waste details...</span>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (!waste) {
+    return (
+      <DashboardLayout>
+        <div className="bg-white p-10 rounded-3xl border border-gray-200 text-center max-w-md mx-auto my-12 space-y-4 font-sans shadow-xs">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
+            <FiAlertCircle className="w-6 h-6" />
+          </div>
+          <h2 className="text-lg font-black text-gray-900">Waste Listing Not Found</h2>
+          <p className="text-xs text-gray-500 font-medium leading-relaxed">
+            The requested industrial resource listing does not exist, has been removed, or has already been completed.
+          </p>
+          <div className="pt-2">
+            <Link
+              to="/marketplace"
+              className="inline-flex items-center gap-1.5 px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all shadow-xs"
+            >
+              Back to Marketplace
+            </Link>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   const rawImage = waste.imageUrl || waste.image || waste.imagePath;
   const imageSrc = getImageSource(rawImage);
-  const [imageError, setImageError] = useState(false);
 
   const qty = parseFloat(waste.quantity) || 5000;
   const isAuction = waste.pricingMode === 'auction';
@@ -315,11 +348,15 @@ export default function WasteDetails() {
                 </div>
                 <div className="flex justify-between border-b border-gray-200 pb-1">
                   <span className="text-gray-500 font-medium">Purity:</span>
-                  <span className="font-bold text-gray-900">{waste.purity?.estimated || 94.5}%</span>
+                  <span className="font-bold text-gray-900">
+                    {typeof waste.purity === 'object' ? (waste.purity?.estimated ?? 94.5) : (waste.purity ?? 94.5)}%
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500 font-medium">Moisture:</span>
-                  <span className="font-bold text-gray-900">{waste.moisture?.estimated || 1.8}%</span>
+                  <span className="font-bold text-gray-900">
+                    {typeof waste.moisture === 'object' ? (waste.moisture?.estimated ?? 1.8) : (waste.moisture ?? 1.8)}%
+                  </span>
                 </div>
               </div>
             </div>

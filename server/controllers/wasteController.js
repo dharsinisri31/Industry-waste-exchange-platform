@@ -10,18 +10,102 @@ const { geocodeAddress } = require('../services/geocodingService');
 const { calculateRoadRoute } = require('../services/routingService');
 const calculateDistance = require('../utils/calculateDistance');
 const getPaginationOptions = require('../utils/pagination');
+const { CANONICAL_CATEGORIES, normalizeCategory } = require('../constants/categories');
+
+// @desc    Classify material image with FastAPI / AI service
+// @route   POST /api/waste/classify-image
+// @access  Private
+const classifyWasteImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No image file provided for classification' 
+      });
+    }
+
+    const { classifyImage } = require('../services/aiService');
+    const result = await classifyImage(req.file.path);
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Image classification controller error:', error);
+    return res.status(500).json({
+      success: false,
+      status: 'ai_unavailable',
+      message: 'Visual classification pipeline encountered an error.',
+      error: error.message
+    });
+  }
+};
 
 // @desc    Create a new waste listing with automatic geocoding, circularity score, & anomaly detection
 // @route   POST /api/waste
 // @access  Private (Industry User)
 const createListing = async (req, res) => {
-  const { name, category, subCategory, quantity, unit, address, city, latitude, longitude, price, description, purity, contamination, isHazardous, imageUrl: bodyImageUrl } = req.body;
+  const {
+    name,
+    category,
+    subCategory,
+    quantity,
+    unit,
+    address,
+    city,
+    latitude,
+    longitude,
+    price,
+    pricingMode,
+    auctionStartingPrice,
+    auctionReservePrice,
+    auctionDurationHours,
+    qualityGrade,
+    description,
+    purity,
+    contamination,
+    sourceIndustry,
+    industrialSource,
+    composition,
+    imageUrl: bodyImageUrl
+  } = req.body;
 
   try {
+    if (!name) {
+      return res.status(400).json({ success: false, message: 'Waste stream name/title is required' });
+    }
+
+    const qtyNum = parseFloat(quantity);
+    if (isNaN(qtyNum) || qtyNum <= 0) {
+      return res.status(400).json({ success: false, message: 'Valid quantity greater than 0 is required' });
+    }
+
+    const isAuction = pricingMode === 'auction';
+    const priceNum = parseFloat(price);
+
+    if (isAuction) {
+      if (isNaN(parseFloat(auctionStartingPrice)) || parseFloat(auctionStartingPrice) < 0) {
+        return res.status(400).json({ success: false, message: 'Valid starting bid price is required for Auction' });
+      }
+    } else {
+      if (isNaN(priceNum) || priceNum < 0) {
+        return res.status(400).json({ success: false, message: 'Valid asking price is required for Fixed Price listings' });
+      }
+    }
+
+    // Normalize category into canonical category
+    const cleanCategory = normalizeCategory(category, name);
+
     let imageUrl = '';
     if (req.file) {
-      // Local file storage in /uploads/waste/
-      imageUrl = `/uploads/waste/${req.file.filename}`;
+      const { isConfigured } = require('../config/cloudinary');
+      if (isConfigured) {
+        try {
+          const cloudUrl = await uploadToCloudinary(req.file.path);
+          imageUrl = cloudUrl || `/uploads/waste/${req.file.filename}`;
+        } catch (cErr) {
+          imageUrl = `/uploads/waste/${req.file.filename}`;
+        }
+      } else {
+        imageUrl = `/uploads/waste/${req.file.filename}`;
+      }
     } else if (bodyImageUrl) {
       imageUrl = bodyImageUrl;
     }
@@ -31,47 +115,44 @@ const createListing = async (req, res) => {
 
     const userProfile = await Industry.findOne({ user: req.user._id });
 
-    // If coordinates not supplied, resolve via industry profile or geocoding
+    // Coordinates fallback
     if (isNaN(lngNum) || isNaN(latNum) || (lngNum === 0 && latNum === 0)) {
       if (userProfile && userProfile.location && userProfile.location.coordinates) {
         lngNum = userProfile.location.coordinates[0];
         latNum = userProfile.location.coordinates[1];
       } else {
-        const coords = await geocodeAddress({ address, city });
-        lngNum = coords[0];
-        latNum = coords[1];
+        const coords = await geocodeAddress({ address: address || 'GIDC', city: city || 'Vadodara' });
+        lngNum = coords[0] || 77.5946;
+        latNum = coords[1] || 12.9716;
       }
     }
 
-    const qtyNum = parseFloat(quantity);
-    const priceNum = parseFloat(price);
+    let predictedPrice = 0;
+    try {
+      predictedPrice = await predictPrice(cleanCategory, qtyNum);
+    } catch (pErr) {
+      predictedPrice = priceNum;
+    }
 
-    const predictedPrice = await predictPrice(category, qtyNum);
-
-    // 1. Calculate Circularity Score (0 - 100)
+    // Purity & Contamination
     const purityVal = typeof purity === 'object' ? (purity?.estimated || 94.5) : (purity ? parseFloat(purity) : 94.5);
     const contamVal = typeof contamination === 'object' ? (contamination?.percentage || 5.0) : (contamination ? parseFloat(contamination) : 5.0);
     const circularityScore = Math.min(100, Math.round(
       0.35 * purityVal +
       0.25 * Math.max(0, 100 - contamVal * 3) +
-      0.25 * 88 + // recyclability yield
-      0.15 * 90 // material recovery factor
+      0.25 * 88 +
+      0.15 * 90
     ));
 
-    // 2. POC Anomaly Detection System
     const anomalyReasons = [];
-    if (priceNum > predictedPrice * 1.8) {
+    if (predictedPrice > 0 && priceNum > predictedPrice * 1.8) {
       anomalyReasons.push(`Listed price (₹${priceNum}) significantly exceeds AI fair market valuation (₹${predictedPrice}).`);
-    }
-    if (purityVal > 98.5) {
-      anomalyReasons.push(`Purity level (${purityVal}%) is unusually high without attached ground-truth lab certification.`);
     }
 
     const isAnomaly = anomalyReasons.length > 0;
-    const anomalyStatus = anomalyReasons.length > 1 ? 'High Risk' : isAnomaly ? 'Flagged for Review' : 'Normal';
+    const anomalyStatus = isAnomaly ? 'Flagged for Review' : 'Normal';
 
-    // 3. RAG AI Compliance Integration
-    const isHaz = isHazardous || category === 'Chemical Waste' || category === 'Fly Ash';
+    const isHaz = isHazardous === true || isHazardous === 'true' || cleanCategory === 'Chemical Waste' || cleanCategory === 'Fly Ash';
     const complianceInfo = {
       status: isHaz ? 'Verification Required' : 'Verified Standard',
       reason: isHaz 
@@ -82,22 +163,31 @@ const createListing = async (req, res) => {
 
     const waste = await Waste.create({
       uploader: req.user._id,
-      name,
-      category,
+      name: name.trim(),
+      category: cleanCategory,
       subCategory: subCategory || 'General Industrial',
       quantity: qtyNum,
       unit: unit || 'kg',
-      address: address || (userProfile ? userProfile.address : 'Industrial Plant'),
-      city: city || (userProfile ? userProfile.city : 'Local'),
+      pricingMode: pricingMode || 'fixed',
+      price: priceNum,
+      predictedPrice: predictedPrice || priceNum,
+      auctionInfo: pricingMode === 'auction' ? {
+        startingPrice: parseFloat(startingPrice) || priceNum,
+        currentBid: parseFloat(startingPrice) || priceNum,
+        minIncrement: parseFloat(minIncrement) || 1,
+        reservePrice: parseFloat(reservePrice) || (priceNum * 1.1),
+        status: 'live'
+      } : undefined,
+      qualityGrade: qualityGrade || 'Grade A',
+      address: address || (userProfile ? userProfile.address : 'Industrial Zone'),
+      city: city || (userProfile ? userProfile.city : 'Vadodara'),
       location: {
         type: 'Point',
         coordinates: [lngNum, latNum]
       },
       imageUrl,
-      description,
-      price: priceNum,
-      predictedPrice,
-      status: 'available',
+      description: description || `Industrial ${cleanCategory} byproduct stream ready for circular procurement.`,
+      status: 'pending', // Pending initial admin approval
       purity: { estimated: purityVal },
       contamination: { percentage: contamVal },
       circularityScore,
@@ -110,7 +200,7 @@ const createListing = async (req, res) => {
       complianceInfo
     });
 
-    // 4. Auto-generate Digital Resource Passport
+    // Generate Passport
     const passportId = `PASSPORT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const sourceIndustryName = userProfile ? userProfile.companyName : (req.user.companyName || 'Industrial Generator');
 
@@ -120,20 +210,20 @@ const createListing = async (req, res) => {
         waste: waste._id,
         qrCodeData: `https://platform.industrialwaste.ai/passport/${passportId}`,
         qrCodeUrl: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${passportId}`,
-        material: category,
+        material: cleanCategory,
         subMaterial: subCategory || 'General Industrial',
         sourceIndustry: sourceIndustryName,
-        category,
+        category: cleanCategory,
         quantity: qtyNum,
         unit: unit || 'kg',
         purity: purityVal,
         contamination: contamVal,
-        qualityGrade: purityVal >= 90 ? 'Grade A' : 'Grade B',
+        qualityGrade: qualityGrade || 'Grade A',
         damageScore: 0.2,
         recyclability: 90.0,
         recoveryYield: 92.0,
         estimatedValue: (priceNum || 35) * (qtyNum || 100),
-        predictedPrice: predictedPrice || 35,
+        predictedPrice: predictedPrice || priceNum || 35,
         carbonSavingKg: Math.round((qtyNum || 100) * 1.5),
         currentStatus: 'Generated',
         aiConfidence: 0.94,
@@ -150,8 +240,12 @@ const createListing = async (req, res) => {
 
     return res.status(201).json(waste);
   } catch (error) {
-    console.error('Create listing error:', error);
-    return res.status(500).json({ message: error.message });
+    console.error('Create listing detailed exception:\n', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Waste listing creation failed', 
+      error: error.message 
+    });
   }
 };
 
@@ -161,13 +255,46 @@ const createListing = async (req, res) => {
 const getMyListings = async (req, res) => {
   try {
     const listings = await Waste.find({
-      uploader: req.user._id,
-      status: { $in: ['active', 'available', 'pending', 'approved'] }
-    }).sort({ createdAt: -1 });
+      uploader: req.user._id
+    }).populate('uploader', 'email role roles isVerified').sort({ createdAt: -1 });
 
-    return res.status(200).json(listings);
+    const userProfile = await Industry.findOne({ user: req.user._id }).select('companyName industryType city address');
+
+    // Check for active or completed transactions on each listing
+    const wasteIds = listings.map(l => l._id);
+    const completedTransactions = await Transaction.find({
+      waste: { $in: wasteIds },
+      status: { $in: ['delivered', 'completed', 'order_placed', 'confirmed', 'in_transit'] }
+    }).select('waste status');
+
+    const transactionMap = new Map();
+    completedTransactions.forEach(t => transactionMap.set(t.waste.toString(), t.status));
+
+    const enrichedListings = listings.map(l => {
+      const obj = l.toObject();
+      if (userProfile) {
+        obj.sellerCompany = userProfile;
+        obj.uploader = {
+          ...obj.uploader,
+          companyName: userProfile.companyName,
+          industryType: userProfile.industryType,
+          city: userProfile.city,
+          address: userProfile.address
+        };
+      }
+      if (transactionMap.has(l._id.toString())) {
+        const txStatus = transactionMap.get(l._id.toString());
+        if (txStatus === 'delivered' || txStatus === 'completed') {
+          obj.status = 'exchanged';
+        }
+      }
+      return obj;
+    });
+
+    return res.status(200).json(enrichedListings);
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    console.error('getMyListings error:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -191,26 +318,13 @@ const getMarketplace = async (req, res) => {
     }
 
     if (category && category !== 'All') {
-      const catLower = category.toLowerCase().trim();
-      if (catLower === 'plastic') {
-        query.category = { $in: ['Plastic', 'Plastic Scrap', 'Polymers', 'PET', 'HDPE', 'PP'] };
-      } else if (catLower === 'paper') {
-        query.category = { $in: ['Paper', 'Packaging Waste', 'Cardboard'] };
-      } else if (catLower === 'metal') {
-        query.category = { $in: ['Metal', 'Metal Scrap', 'Aluminium', 'Copper', 'Steel'] };
-      } else if (catLower === 'textile') {
-        query.category = { $in: ['Textile', 'Textile Waste', 'Cotton'] };
-      } else if (catLower === 'glass') {
-        query.category = { $in: ['Glass', 'Glass Scrap', 'Cullet'] };
-      } else if (catLower === 'fly ash') {
-        query.category = { $in: ['Fly Ash', 'Slag'] };
-      } else if (catLower === 'e-waste') {
-        query.category = { $in: ['E-Waste', 'Electronic Waste'] };
-      } else if (catLower === 'chemical') {
-        query.category = { $in: ['Chemical Waste', 'Spent Solvents', 'Chemical'] };
-      } else {
-        query.category = new RegExp(`^${category}$`, 'i');
-      }
+      const canonical = normalizeCategory(category);
+      const searchTerms = category.split(/[\/\&]/).map(s => s.trim()).filter(Boolean);
+      query.$or = [
+        { category: canonical },
+        ...searchTerms.map(term => ({ category: new RegExp(term, 'i') })),
+        { category: new RegExp(category, 'i') }
+      ];
     }
 
     if (minPrice) {
@@ -245,13 +359,36 @@ const getMarketplace = async (req, res) => {
       };
     }
 
-    const listings = await Waste.find(query).populate('uploader', 'companyName email industryType city address').sort({ createdAt: -1 });
+    const listings = await Waste.find(query).populate('uploader', 'email role roles isVerified').sort({ createdAt: -1 });
+
+    const uploaderIds = listings.map(l => l.uploader?._id || l.uploader).filter(Boolean);
+    const industries = await Industry.find({ user: { $in: uploaderIds } }).select('user companyName industryType city address');
+    const industryMap = new Map();
+    industries.forEach(ind => industryMap.set(ind.user.toString(), ind));
+
+    const enrichedListings = listings.map(l => {
+      const obj = l.toObject();
+      const uId = l.uploader?._id ? l.uploader._id.toString() : (l.uploader ? l.uploader.toString() : null);
+      if (uId && industryMap.has(uId)) {
+        const ind = industryMap.get(uId);
+        obj.sellerCompany = ind;
+        obj.uploader = {
+          ...obj.uploader,
+          companyName: ind.companyName,
+          industryType: ind.industryType,
+          city: ind.city,
+          address: ind.address
+        };
+      }
+      return obj;
+    });
 
     return res.status(200).json({
-      listings,
-      count: listings.length
+      listings: enrichedListings,
+      count: enrichedListings.length
     });
   } catch (error) {
+    console.error('getMarketplace error:', error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -261,13 +398,34 @@ const getMarketplace = async (req, res) => {
 // @access  Public
 const getListingById = async (req, res) => {
   try {
-    const waste = await Waste.findById(req.params.id).populate('uploader', 'companyName email industryType city address');
+    const waste = await Waste.findById(req.params.id).populate('uploader', 'email role roles isVerified');
     if (!waste) {
-      return res.status(404).json({ message: 'Waste listing not found' });
+      return res.status(404).json({ success: false, message: 'Waste listing not found' });
     }
-    return res.status(200).json(waste);
+
+    const wasteObj = waste.toObject();
+
+    // Populate seller company details from Industry collection
+    if (waste.uploader) {
+      const uploaderId = waste.uploader._id || waste.uploader;
+      const industry = await Industry.findOne({ user: uploaderId }).select('companyName industryType city address registrationNumber');
+      if (industry) {
+        wasteObj.sellerCompany = industry;
+        wasteObj.uploader = {
+          ...wasteObj.uploader,
+          companyName: industry.companyName,
+          industryType: industry.industryType,
+          city: industry.city,
+          address: industry.address,
+          registrationNumber: industry.registrationNumber
+        };
+      }
+    }
+
+    return res.status(200).json(wasteObj);
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    console.error('getListingById error:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -361,6 +519,7 @@ const requestExchange = async (req, res) => {
 };
 
 module.exports = {
+  classifyWasteImage,
   createListing,
   getMyListings,
   getMarketplace,

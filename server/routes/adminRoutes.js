@@ -15,7 +15,8 @@ const {
   getKnowledgeBaseStatus,
   reindexKnowledgeBase,
   getPlatformSettings,
-  updatePlatformSettings
+  updatePlatformSettings,
+  getSmartMatches
 } = require('../controllers/adminController');
 const { protect, isAdmin } = require('../middleware/authMiddleware');
 
@@ -39,7 +40,8 @@ router.patch('/buyer-requirements/:id/status', isAdmin, updateBuyerRequirementSt
 router.get('/transactions', isAdmin, getAllTransactions);
 router.patch('/transactions/:id', updateTransactionStatus);
 
-// AI & Anomalies
+// AI & Anomalies & Smart Matching
+router.get('/smart-matches', isAdmin, getSmartMatches);
 router.get('/anomalies', isAdmin, getAnomaliesList);
 
 // RAG Knowledge Base Management

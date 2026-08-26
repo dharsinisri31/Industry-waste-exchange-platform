@@ -4,6 +4,7 @@ const Waste = require('../models/Waste');
 const Transaction = require('../models/Transaction');
 const Notification = require('../models/Notification');
 const BuyerRequirement = require('../models/BuyerRequirement');
+const calculateDistance = require('../utils/calculateDistance');
 const { STANDARDIZED_STATUSES, normalizeStatus, STATUS_LABELS, STATUS_COLORS } = require('../utils/statusUtils');
 const { calculateAvoidedCO2, calculateVirginMaterialReplaced } = require('../utils/sustainabilityUtils');
 
@@ -249,40 +250,59 @@ const getDashboardSummary = async (req, res) => {
   }
 };
 
-// @desc    Get all registered industries with filtering
-// @route   GET /api/admin/industries
-// @access  Private (Admin Only)
 const getAllIndustries = async (req, res) => {
   try {
     const { role, verified, search } = req.query;
     const query = {};
 
-    if (role && role !== 'all') {
-      query.businessRole = role;
+    if (role && role !== 'all' && role !== 'All') {
+      const r = role.toLowerCase();
+      if (r === 'seller' || r === 'sender') {
+        query.$or = [{ businessRole: 'sender' }, { businessRole: 'seller' }, { roles: 'seller' }];
+      } else if (r === 'buyer' || r === 'receiver') {
+        query.$or = [{ businessRole: 'receiver' }, { businessRole: 'buyer' }, { roles: 'buyer' }];
+      } else if (r === 'both' || r === 'seller / buyer') {
+        query.$or = [{ businessRole: 'both' }, { roles: { $all: ['buyer', 'seller'] } }];
+      } else {
+        query.businessRole = role;
+      }
     }
 
     let industries = await Industry.find(query)
-      .populate('user', 'email isVerified role createdAt')
+      .populate('user', 'email isVerified role isSuspended createdAt')
       .sort({ createdAt: -1 });
 
-    if (verified === 'verified') {
-      industries = industries.filter(i => i.user && i.user.isVerified);
-    } else if (verified === 'pending') {
-      industries = industries.filter(i => i.user && !i.user.isVerified);
+    if (verified) {
+      const v = verified.toLowerCase();
+      if (v === 'verified') {
+        industries = industries.filter(i => (i.user && i.user.isVerified) || (i.status || '').toLowerCase() === 'verified' || (i.verificationStatus || '').toLowerCase() === 'verified');
+      } else if (v === 'pending') {
+        industries = industries.filter(i => (!i.user || !i.user.isVerified) && (i.status || '').toLowerCase() !== 'verified' && (i.verificationStatus || '').toLowerCase() !== 'verified');
+      } else if (v === 'rejected') {
+        industries = industries.filter(i => (i.status || '').toLowerCase() === 'rejected' || (i.verificationStatus || '').toLowerCase() === 'rejected');
+      } else if (v === 'suspended') {
+        industries = industries.filter(i => (i.user && i.user.isSuspended) || (i.status || '').toLowerCase() === 'suspended' || (i.verificationStatus || '').toLowerCase() === 'suspended');
+      }
     }
 
     if (search) {
-      const s = search.toLowerCase();
+      const s = search.toLowerCase().trim();
       industries = industries.filter(i => 
         (i.companyName && i.companyName.toLowerCase().includes(s)) ||
+        (i.user?.email && i.user.email.toLowerCase().includes(s)) ||
         (i.city && i.city.toLowerCase().includes(s)) ||
+        (i.address && i.address.toLowerCase().includes(s)) ||
         (i.registrationNumber && i.registrationNumber.toLowerCase().includes(s)) ||
-        (i.industryType && i.industryType.toLowerCase().includes(s))
+        (i.industryType && i.industryType.toLowerCase().includes(s)) ||
+        (i.contactPhone && i.contactPhone.toLowerCase().includes(s)) ||
+        (i.neededWasteTypes && i.neededWasteTypes.toLowerCase().includes(s)) ||
+        (i.description && i.description.toLowerCase().includes(s))
       );
     }
 
     return res.status(200).json(industries);
   } catch (error) {
+    console.error('Error in getAllIndustries:', error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -365,10 +385,51 @@ const getAllWasteListings = async (req, res) => {
   try {
     const listings = await Waste.find()
       .populate('uploader', 'companyName email city address phone')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
-    return res.status(200).json(listings);
+    // Map uploader to Industry company profile if companyName is not directly on User
+    const uploaderIds = listings.map(l => l.uploader?._id || l.uploader).filter(Boolean);
+    const industries = await Industry.find({ user: { $in: uploaderIds } }).lean();
+    const industryMap = new Map();
+    industries.forEach(ind => industryMap.set(String(ind.user), ind));
+
+    // Also look up transactions for exchange status metadata
+    const wasteIds = listings.map(l => l._id);
+    const transactions = await Transaction.find({ waste: { $in: wasteIds } })
+      .populate('buyer', 'companyName email')
+      .populate('seller', 'companyName email')
+      .lean();
+    const transMap = new Map();
+    transactions.forEach(t => transMap.set(String(t.waste), t));
+
+    const enriched = listings.map(item => {
+      const uploaderIdStr = String(item.uploader?._id || item.uploader || '');
+      const ind = industryMap.get(uploaderIdStr);
+      const trans = transMap.get(String(item._id));
+
+      return {
+        ...item,
+        imageUrl: item.imageUrl || item.image || item.imagePath || '',
+        uploader: {
+          ...(typeof item.uploader === 'object' ? item.uploader : {}),
+          companyName: ind?.companyName || item.uploader?.companyName || 'Industrial Generator',
+          email: item.uploader?.email || ind?.user?.email || 'N/A',
+          city: ind?.city || item.city || 'Regional',
+          address: ind?.address || item.address || ''
+        },
+        exchangeInfo: trans ? {
+          orderId: trans.orderId,
+          orderStatus: trans.orderStatus || trans.status,
+          buyerName: trans.buyer?.companyName || 'Verified Buyer',
+          createdAt: trans.createdAt
+        } : null
+      };
+    });
+
+    return res.status(200).json(enriched);
   } catch (error) {
+    console.error('Error in getAllWasteListings:', error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -378,14 +439,16 @@ const getAllWasteListings = async (req, res) => {
 // @access  Private (Admin Only)
 const updateWasteListingStatus = async (req, res) => {
   try {
-    const { status, note } = req.body; // 'active', 'rejected', 'flagged'
+    const { status, note } = req.body; // 'active', 'approved', 'rejected', 'pending'
+    const statusNormalized = (status || '').toLowerCase() === 'approved' ? 'active' : (status || '').toLowerCase();
+    
     const waste = await Waste.findById(req.params.id);
     if (!waste) {
       return res.status(404).json({ message: 'Waste listing not found' });
     }
 
-    waste.status = status;
-    if (note) {
+    waste.status = statusNormalized;
+    if (note !== undefined) {
       waste.moderationNote = note;
     }
     await waste.save();
@@ -393,14 +456,15 @@ const updateWasteListingStatus = async (req, res) => {
     if (waste.uploader) {
       await Notification.create({
         recipient: waste.uploader,
-        title: `Listing ${status.toUpperCase()}`,
-        message: `Your listing for "${waste.name}" was marked as ${status} by platform administration.${note ? ' Reason: ' + note : ''}`,
+        title: `Listing ${statusNormalized.toUpperCase()}`,
+        message: `Your listing for "${waste.name}" was marked as ${statusNormalized} by platform administration.${note ? ' Reason: ' + note : ''}`,
         type: 'transaction'
       });
     }
 
-    return res.status(200).json({ message: `Listing marked as ${status}`, waste });
+    return res.status(200).json({ message: `Listing marked as ${statusNormalized}`, waste });
   } catch (error) {
+    console.error('Error in updateWasteListingStatus:', error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -613,6 +677,205 @@ const updatePlatformSettings = async (req, res) => {
   }
 };
 
+// @desc    Get automatic Smart Matches between active Buyer Requirements and active Waste Listings
+// @route   GET /api/admin/smart-matches
+// @access  Private (Admin Only)
+const getSmartMatches = async (req, res) => {
+  try {
+    // 1. Fetch only ACTIVE Buyer Requirements (exclude closed, paused, fulfilled, deleted)
+    const buyerReqs = await BuyerRequirement.find({ status: 'active' })
+      .populate('buyer', 'companyName email')
+      .populate('companyProfile', 'companyName city address industryType')
+      .lean();
+
+    // 2. Fetch only ACTIVE / AVAILABLE Seller Waste Listings (exclude pending, rejected, exchanged, sold)
+    const wasteListings = await Waste.find({ status: { $in: ['active', 'available'] } })
+      .populate('uploader', 'companyName email')
+      .lean();
+
+    if (!buyerReqs.length || !wasteListings.length) {
+      return res.status(200).json([]);
+    }
+
+    // 3. Map all Industry profiles for reliable company metadata
+    const userIds = [
+      ...buyerReqs.map(r => r.buyer?._id || r.buyer),
+      ...wasteListings.map(w => w.uploader?._id || w.uploader)
+    ].filter(Boolean);
+
+    const industries = await Industry.find({ user: { $in: userIds } }).lean();
+    const industryMap = new Map();
+    industries.forEach(ind => industryMap.set(String(ind.user), ind));
+
+    // 4. Pairwise Compatibility Evaluation
+    const matches = [];
+
+    for (const reqItem of buyerReqs) {
+      const buyerUserId = String(reqItem.buyer?._id || reqItem.buyer || '');
+      const buyerInd = industryMap.get(buyerUserId) || reqItem.companyProfile;
+
+      const buyerCompanyName = buyerInd?.companyName || reqItem.buyer?.companyName || 'Registered Buyer';
+      const buyerCity = reqItem.city || buyerInd?.city || 'Regional';
+      const buyerAddress = reqItem.address || buyerInd?.address || '';
+      const buyerCoords = reqItem.location?.coordinates || buyerInd?.location?.coordinates || [77.5946, 12.9716];
+
+      for (const waste of wasteListings) {
+        const sellerUserId = String(waste.uploader?._id || waste.uploader || '');
+        
+        // Exclude self-matching
+        if (buyerUserId && sellerUserId && buyerUserId === sellerUserId) {
+          continue;
+        }
+
+        const sellerInd = industryMap.get(sellerUserId);
+        const sellerCompanyName = sellerInd?.companyName || waste.uploader?.companyName || 'Registered Seller';
+        const sellerCity = waste.city || sellerInd?.city || 'Regional';
+        const sellerAddress = waste.address || sellerInd?.address || '';
+        const sellerCoords = waste.location?.coordinates || sellerInd?.location?.coordinates || [77.5946, 12.9716];
+
+        // --- 1. Material & Category Compatibility (35% weight) ---
+        const reqMat = (reqItem.material || '').toLowerCase().trim();
+        const reqCat = (reqItem.category || '').toLowerCase().trim();
+        const wasteName = (waste.name || '').toLowerCase().trim();
+        const wasteCat = (waste.category || '').toLowerCase().trim();
+
+        const getKeywords = (str) => str.replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+        const reqWords = [...new Set([...getKeywords(reqMat), ...getKeywords(reqCat)])];
+        const wasteWords = [...new Set([...getKeywords(wasteName), ...getKeywords(wasteCat)])];
+        const commonWords = reqWords.filter(w => wasteWords.includes(w) && !['waste', 'scrap', 'industrial', 'material', 'byproduct', 'stream'].includes(w));
+
+        let materialScore = 0;
+        const isExactName = reqMat === wasteName;
+        const cleanReqCat = reqCat.replace(/\s*scrap/g, '').trim();
+        const cleanWasteCat = wasteCat.replace(/\s*scrap/g, '').trim();
+        const isCatMatch = cleanReqCat === cleanWasteCat || reqCat.includes(cleanWasteCat) || wasteCat.includes(cleanReqCat);
+
+        if (isExactName) {
+          materialScore = 100;
+        } else if (commonWords.length >= 2 || (isCatMatch && commonWords.length >= 1)) {
+          materialScore = 95;
+        } else if (isCatMatch) {
+          materialScore = 85;
+        } else if (commonWords.length >= 1) {
+          materialScore = 80;
+        } else if (wasteName.includes(reqMat) || reqMat.includes(wasteName)) {
+          materialScore = 75;
+        } else {
+          // Material stream mismatch (e.g. Plastic vs Fly Ash)
+          continue;
+        }
+
+        // --- 2. Quantity Compatibility (20% weight) ---
+        const reqQty = reqItem.quantity || 1;
+        const wasteQty = waste.quantity || 0;
+        let quantityScore = 0;
+        if (wasteQty >= reqQty) {
+          quantityScore = 100;
+        } else {
+          quantityScore = Math.max(10, Math.round((wasteQty / reqQty) * 100));
+        }
+
+        // --- 3. Quality / Purity Compatibility (15% weight) ---
+        const minPurity = reqItem.minPurity || 85.0;
+        const wastePurity = (typeof waste.purity === 'object' ? waste.purity?.estimated : parseFloat(waste.purity)) || 90.0;
+        let qualityScore = 0;
+        if (wastePurity >= minPurity) {
+          qualityScore = 100;
+        } else {
+          qualityScore = Math.max(10, Math.round(100 - (minPurity - wastePurity) * 4));
+        }
+        if (waste.qualityGrade === 'Grade A') qualityScore = Math.min(100, qualityScore + 5);
+
+        // --- 4. Price / Budget Compatibility (15% weight) ---
+        const maxPrice = reqItem.maxPrice || 100;
+        const askingPrice = waste.price || 0;
+        let priceScore = 0;
+        if (askingPrice <= maxPrice) {
+          const savingsRatio = maxPrice > 0 ? (maxPrice - askingPrice) / maxPrice : 0;
+          priceScore = Math.min(100, Math.round(90 + savingsRatio * 10));
+        } else {
+          const overagePct = maxPrice > 0 ? ((askingPrice - maxPrice) / maxPrice) * 100 : 100;
+          if (overagePct > 60) {
+            priceScore = 0;
+          } else {
+            priceScore = Math.max(0, Math.round(90 - overagePct * 1.5));
+          }
+        }
+
+        // --- 5. Location / Logistics Compatibility (15% weight) ---
+        const distanceKm = calculateDistance(buyerCoords, sellerCoords);
+        const maxRadius = reqItem.radiusKm || 250;
+        let locationScore = 0;
+        if (distanceKm <= 50) {
+          locationScore = 100;
+        } else if (distanceKm <= maxRadius) {
+          locationScore = Math.max(20, Math.round(100 - ((distanceKm - 50) / (maxRadius - 50 || 1)) * 60));
+        } else {
+          locationScore = Math.max(5, Math.round(40 - ((distanceKm - maxRadius) / 100) * 20));
+        }
+
+        // --- Composite Weighted Score ---
+        const overallScore = Math.round(
+          0.35 * materialScore +
+          0.20 * quantityScore +
+          0.15 * qualityScore +
+          0.15 * priceScore +
+          0.15 * locationScore
+        );
+
+        // Only include viable matches (Overall Score >= 50%)
+        if (overallScore >= 50) {
+          matches.push({
+            id: `${reqItem._id}_${waste._id}`,
+            buyerReqId: reqItem._id,
+            wasteId: waste._id,
+            material: reqItem.material || waste.name,
+            category: reqItem.category || waste.category,
+            overallScore,
+            breakdown: {
+              materialScore,
+              quantityScore,
+              qualityScore,
+              priceScore,
+              locationScore
+            },
+            buyer: {
+              id: buyerUserId,
+              companyName: buyerCompanyName,
+              city: buyerCity,
+              address: buyerAddress,
+              requiredQuantity: `${reqItem.quantity} ${reqItem.unit || 'kg'}`,
+              maxPrice: `₹${reqItem.maxPrice} / ${reqItem.unit || 'kg'}`,
+              minPurity: `${minPurity}%`
+            },
+            seller: {
+              id: sellerUserId,
+              companyName: sellerCompanyName,
+              city: sellerCity,
+              address: sellerAddress,
+              availableQuantity: `${waste.quantity} ${waste.unit || 'kg'}`,
+              price: `₹${waste.price} / ${waste.unit || 'kg'}`,
+              qualityGrade: waste.qualityGrade || 'Grade A',
+              purity: `${wastePurity}%`,
+              imageUrl: waste.imageUrl || ''
+            },
+            matchedQuantity: `${Math.min(waste.quantity, reqItem.quantity)} ${reqItem.unit || waste.unit || 'kg'}`,
+            distanceKm: `${distanceKm} km`
+          });
+        }
+      }
+    }
+
+    // Sort by Highest Match Score first
+    matches.sort((a, b) => b.overallScore - a.overallScore);
+
+    return res.status(200).json(matches);
+  } catch (error) {
+    console.error('Error in getSmartMatches:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getDashboardSummary,
   getAllIndustries,
@@ -628,6 +891,8 @@ module.exports = {
   getKnowledgeBaseStatus,
   reindexKnowledgeBase,
   getPlatformSettings,
-  updatePlatformSettings
+  updatePlatformSettings,
+  getSmartMatches
 };
+
 

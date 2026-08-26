@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getTraceability,
+  getMyExchanges,
   getExchangeById,
   uploadExchangeDocument,
   verifyExchangeDocument,
@@ -14,10 +15,8 @@ const {
 } = require('../controllers/traceabilityController');
 const { protect, isAdmin } = require('../middleware/authMiddleware');
 
-// Public Traceability lookup by batchId, exchangeId, or transaction _id
-router.get('/:batchOrExchangeId', getTraceability);
-
-// Exchange detail and operations
+// Exchange list & detail operations (Protected)
+router.get('/exchanges', protect, getMyExchanges);
 router.get('/exchanges/:id', protect, getExchangeById);
 router.patch('/exchanges/:id/order-status', protect, updateOrderStatus);
 router.post('/exchanges/:id/documents', protect, uploadExchangeDocument);
@@ -27,5 +26,8 @@ router.post('/exchanges/:id/rate', protect, submitPartnerRating);
 router.post('/exchanges/:id/logistics/status', protect, updateLogisticsStatus);
 router.post('/exchanges/:id/payment/confirm', protect, confirmDemoPayment);
 router.post('/exchanges/:id/recycle-confirm', protect, confirmRecycling);
+
+// Public Traceability lookup by batchId, exchangeId, or transaction _id (Fallback)
+router.get('/:batchOrExchangeId', getTraceability);
 
 module.exports = router;

@@ -149,12 +149,76 @@ const getTraceability = async (req, res) => {
   }
 };
 
+const getMyExchanges = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const isAdmin = req.user.role === 'admin' || (req.user.roles && req.user.roles.includes('admin'));
+
+    const query = isAdmin
+      ? {}
+      : { $or: [{ buyer: userId }, { seller: userId }] };
+
+    const transactions = await Transaction.find(query)
+      .populate('seller', 'name email companyName')
+      .populate('buyer', 'name email companyName')
+      .populate('waste')
+      .populate('paymentId')
+      .populate('dispute')
+      .sort({ createdAt: -1 });
+
+    const userIds = [];
+    transactions.forEach(t => {
+      if (t.seller?._id) userIds.push(t.seller._id);
+      if (t.buyer?._id) userIds.push(t.buyer._id);
+    });
+
+    const industries = await Industry.find({ user: { $in: userIds } });
+    const industryMap = {};
+    industries.forEach(ind => {
+      if (ind.user) industryMap[ind.user.toString()] = ind;
+    });
+
+    const formatted = transactions.map(t => {
+      const isBuyer = t.buyer?._id ? t.buyer._id.equals(userId) : false;
+      const isSeller = t.seller?._id ? t.seller._id.equals(userId) : false;
+
+      const sellerIndustry = industryMap[t.seller?._id?.toString()];
+      const buyerIndustry = industryMap[t.buyer?._id?.toString()];
+
+      const partnerName = isBuyer
+        ? (sellerIndustry?.companyName || t.seller?.companyName || t.seller?.name || 'Seller Facility')
+        : (buyerIndustry?.companyName || t.buyer?.companyName || t.buyer?.name || 'Buyer Facility');
+
+      return {
+        ...t.toObject(),
+        sellerIndustry,
+        buyerIndustry,
+        partnerName,
+        roleInExchange: isBuyer ? 'Buyer' : (isSeller ? 'Seller' : 'Admin')
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: formatted.length,
+      exchanges: formatted
+    });
+  } catch (err) {
+    console.error('Get my exchanges error:', err);
+    return res.status(500).json({ success: false, message: 'Server error retrieving exchanges.' });
+  }
+};
+
 const getExchangeById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user._id;
+    const isAdmin = req.user.role === 'admin' || (req.user.roles && req.user.roles.includes('admin'));
+
     const transaction = await Transaction.findOne({
       $or: [
         { exchangeId: id },
+        { orderId: id },
         ...(id.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: id }] : [])
       ]
     })
@@ -168,6 +232,17 @@ const getExchangeById = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Exchange order not found.' });
     }
 
+    // Strict Security Authorization Check: Must be Buyer, Seller, or Admin
+    const isBuyer = transaction.buyer?._id ? transaction.buyer._id.equals(userId) : transaction.buyer?.equals(userId);
+    const isSeller = transaction.seller?._id ? transaction.seller._id.equals(userId) : transaction.seller?.equals(userId);
+
+    if (!isBuyer && !isSeller && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: You do not have authorization to view this exchange.'
+      });
+    }
+
     const [sellerIndustry, buyerIndustry] = await Promise.all([
       Industry.findOne({ user: transaction.seller?._id }),
       Industry.findOne({ user: transaction.buyer?._id })
@@ -178,7 +253,10 @@ const getExchangeById = async (req, res) => {
       exchange: {
         ...transaction.toObject(),
         sellerIndustry,
-        buyerIndustry
+        buyerIndustry,
+        isCurrentUserBuyer: isBuyer,
+        isCurrentUserSeller: isSeller,
+        currentUserRole: isBuyer ? 'Buyer' : (isSeller ? 'Seller' : 'Admin')
       }
     });
   } catch (err) {
@@ -741,6 +819,7 @@ const updateOrderStatus = async (req, res) => {
 
 module.exports = {
   getTraceability,
+  getMyExchanges,
   getExchangeById,
   uploadExchangeDocument,
   verifyExchangeDocument,

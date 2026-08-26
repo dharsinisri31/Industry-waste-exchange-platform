@@ -14,11 +14,13 @@ import Register from '../pages/Register';
 import NotFound from '../pages/NotFound';
 import Traceability from '../pages/Traceability';
 import ExchangeDetail from '../pages/ExchangeDetail';
+import ExchangesPage from '../pages/ExchangesPage';
 
 // Authenticated Industry Pages
 import Dashboard from '../pages/Dashboard';
 import UploadWaste from '../pages/UploadWaste';
 import WasteDetails from '../pages/WasteDetails';
+import SellerWasteListings from '../pages/SellerWasteListings';
 import PostRequirement from '../pages/PostRequirement';
 import MyRequirements from '../pages/MyRequirements';
 import BuyerSupplierMatcher from '../pages/BuyerSupplierMatcher';
@@ -63,7 +65,6 @@ const AppRoutes = () => {
       <Route path="/signup" element={<Register />} />
       <Route path="/register" element={<Register />} />
       <Route path="/admin/login" element={<Navigate to="/login" replace />} />
-      <Route path="/traceability" element={<Traceability />} />
       <Route path="/traceability/:id" element={<Traceability />} />
 
       {/* 2. Common Industry User (Seller / Buyer) Protected Routes */}
@@ -71,7 +72,10 @@ const AppRoutes = () => {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/waste/:id" element={<WasteDetails />} />
+        <Route path="/exchanges" element={<ExchangesPage />} />
+        <Route path="/exchanges/:id" element={<ExchangeDetail />} />
         <Route path="/exchange/:id" element={<ExchangeDetail />} />
+        <Route path="/traceability" element={<ExchangesPage />} />
         <Route path="/route-optimization" element={<RouteOptimization />} />
         <Route path="/gis-map" element={<RouteOptimization />} />
         <Route path="/logistics" element={<RouteOptimization />} />
@@ -90,6 +94,9 @@ const AppRoutes = () => {
       {/* 3. Seller-Only Protected Routes */}
       <Route element={<ProtectedRoute allowedRoles={['seller', 'admin']} />}>
         <Route path="/upload-waste" element={<UploadWaste />} />
+        <Route path="/seller/my-waste-listings" element={<SellerWasteListings />} />
+        <Route path="/my-waste-listings" element={<SellerWasteListings />} />
+        <Route path="/seller/listings" element={<SellerWasteListings />} />
         <Route path="/recommendations" element={<Recommendations />} />
       </Route>
 

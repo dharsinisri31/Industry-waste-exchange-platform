@@ -11,7 +11,7 @@ const aiClient = axios.create({
 });
 
 /**
- * Classify waste image using YOLOv8 / FastAPI endpoint.
+ * Classify waste image using FastAPI Material Classifier endpoint.
  */
 const classifyImage = async (filePath) => {
   try {
@@ -22,21 +22,18 @@ const classifyImage = async (filePath) => {
       headers: formData.getHeaders(),
       timeout: 10000
     });
-    return response.data.category;
+    return {
+      success: true,
+      ...response.data
+    };
   } catch (error) {
-    console.warn('[AI Service] Classification fallback active.');
-    const fileLower = filePath.toLowerCase();
-    if (fileLower.includes('plastic')) return 'Plastic Scrap';
-    if (fileLower.includes('metal') || fileLower.includes('iron') || fileLower.includes('copper')) return 'Metal Scrap';
-    if (fileLower.includes('ash')) return 'Fly Ash';
-    if (fileLower.includes('glass')) return 'Glass';
-    if (fileLower.includes('textile') || fileLower.includes('cloth')) return 'Textile Waste';
-    if (fileLower.includes('food')) return 'Food Waste';
-    if (fileLower.includes('chem') || fileLower.includes('barrel') || fileLower.includes('drum')) return 'Chemical Containers';
-    if (fileLower.includes('wire') || fileLower.includes('board') || fileLower.includes('cpu')) return 'Electronic Waste';
-    
-    const categories = ['Plastic Scrap', 'Metal Scrap', 'Fly Ash', 'Glass', 'Textile Waste', 'Food Waste', 'Chemical Containers', 'Electronic Waste'];
-    return categories[Math.floor(Math.random() * categories.length)];
+    console.warn('[AI Service] Classification request failed:', error.message);
+    return {
+      success: false,
+      status: 'ai_unavailable',
+      message: 'AI inspection microservice is currently unreachable on port 8000.',
+      error: error.message
+    };
   }
 };
 

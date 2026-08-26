@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { CANONICAL_CATEGORIES, normalizeCategory } = require('../constants/categories');
 
 const wasteSchema = new mongoose.Schema({
   uploader: {
@@ -17,32 +18,8 @@ const wasteSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: [
-      'Plastic',
-      'Metal',
-      'Paper',
-      'Glass',
-      'Rubber',
-      'Textile',
-      'Wood',
-      'E-Waste',
-      'Organic Waste',
-      'Chemical Waste',
-      'Construction Waste',
-      'Fly Ash',
-      'Slag',
-      'Industrial Sludge',
-      'Oil Waste',
-      'Packaging Waste',
-      'Food Processing Waste',
-      'Textile Waste',
-      'Plastic Scrap',
-      'Metal Scrap',
-      'Spent Solvents',
-      'Other Industrial Waste',
-      'Other'
-    ],
-    default: 'Other Industrial Waste'
+    enum: CANONICAL_CATEGORIES,
+    default: 'Plastic / Polymers'
   },
   subCategory: {
     type: String,
@@ -212,6 +189,12 @@ const wasteSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true
+});
+
+wasteSchema.pre('validate', function() {
+  if (this.category || this.name) {
+    this.category = normalizeCategory(this.category, this.name);
+  }
 });
 
 wasteSchema.index({ location: '2dsphere' });

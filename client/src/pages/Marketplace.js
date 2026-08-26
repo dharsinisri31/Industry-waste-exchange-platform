@@ -7,12 +7,22 @@ import {
 } from 'react-icons/fi';
 import DashboardLayout from '../layouts/DashboardLayout';
 import WasteCard from '../components/WasteCard';
-import Loader from '../components/Loader';
+import { ROLES, normalizeRole } from '../utils/roleUtils';
+import { CANONICAL_CATEGORIES, normalizeCategory } from '../constants/categories';
 
 export default function Marketplace() {
-  const { user } = useAuth();
+  const { user, profile, activeRole, canonicalRole } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+
+  const currentRole = canonicalRole || normalizeRole(user, profile, activeRole);
+
+  // Role Protection: If Seller accesses Marketplace, redirect cleanly to Seller My Waste Listings
+  useEffect(() => {
+    if (user && currentRole === ROLES.SELLER) {
+      navigate('/seller/my-waste-listings', { replace: true });
+    }
+  }, [user, currentRole, navigate]);
 
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,9 +50,7 @@ export default function Marketplace() {
   const [alertMsg, setAlertMsg] = useState('');
   const [loginPromptOpen, setLoginPromptOpen] = useState(false);
 
-  const categories = [
-    'All', 'Plastic', 'Metal', 'Paper', 'Textile', 'Glass', 'Fly Ash', 'E-Waste'
-  ];
+  const categories = ['All', ...CANONICAL_CATEGORIES];
 
   // Listen to searchParams changes
   useEffect(() => {
@@ -124,37 +132,16 @@ export default function Marketplace() {
     setPage(1);
   };
 
-  // Precise category matcher to prevent cross-category bleed
+  // Precise canonical category matcher
   const isCategoryMatch = (itemCatName, targetCat) => {
     if (!targetCat || targetCat === 'All') return true;
-    const itemCat = (itemCatName || '').toLowerCase().trim();
-    const target = targetCat.toLowerCase().trim();
-
-    if (target === 'plastic') {
-      return itemCat === 'plastic' || itemCat.includes('plastic') || itemCat.includes('polymer') || itemCat.includes('pet') || itemCat.includes('hdpe') || itemCat.includes('pp');
-    }
-    if (target === 'paper') {
-      return itemCat === 'paper' || itemCat.includes('paper') || itemCat.includes('cardboard') || itemCat.includes('packaging');
-    }
-    if (target === 'metal') {
-      return itemCat === 'metal' || itemCat.includes('metal') || itemCat.includes('aluminium') || itemCat.includes('copper') || itemCat.includes('steel');
-    }
-    if (target === 'textile') {
-      return itemCat === 'textile' || itemCat.includes('textile') || itemCat.includes('cotton') || itemCat.includes('yarn') || itemCat.includes('fabric');
-    }
-    if (target === 'glass') {
-      return itemCat === 'glass' || itemCat.includes('glass') || itemCat.includes('cullet');
-    }
-    if (target === 'fly ash') {
-      return itemCat === 'fly ash' || itemCat.includes('fly ash') || itemCat.includes('slag') || itemCat.includes('ash');
-    }
-    if (target === 'e-waste') {
-      return itemCat === 'e-waste' || itemCat.includes('e-waste') || itemCat.includes('electronic') || itemCat.includes('circuit');
-    }
-    if (target === 'chemical') {
-      return itemCat === 'chemical' || itemCat.includes('chemical') || itemCat.includes('solvent');
-    }
-    return itemCat === target || itemCat.includes(target);
+    const targetCanonical = normalizeCategory(targetCat);
+    const itemCanonical = normalizeCategory(itemCatName);
+    if (targetCanonical === itemCanonical) return true;
+    
+    const targetLower = targetCat.toLowerCase().trim();
+    const itemLower = (itemCatName || '').toLowerCase().trim();
+    return itemLower.includes(targetLower) || targetLower.includes(itemLower);
   };
 
   // Filtered & Sorted Listings
@@ -202,6 +189,13 @@ export default function Marketplace() {
         if (!(item.state || item.city || item.address || '').toLowerCase().includes(selectedState.toLowerCase())) return false;
       }
 
+      // 7. Exclude current authenticated seller's own uploaded listings from Marketplace buying discovery
+      const currentUserId = user?._id || user?.id;
+      const uploaderId = item.uploader?._id || item.uploader;
+      if (currentUserId && uploaderId && currentUserId.toString() === uploaderId.toString()) {
+        return false;
+      }
+
       return true;
     }).sort((a, b) => {
       if (dropdownSort === 'Newest') return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
@@ -212,7 +206,7 @@ export default function Marketplace() {
       return 0;
     });
   }, [
-    listings, search, activeCategory, filterMaterial, selectedGrades, 
+    listings, user, search, activeCategory, filterMaterial, selectedGrades, 
     minQty, maxQty, minPrice, maxPrice, dropdownLocation, selectedState, dropdownSort
   ]);
 
@@ -243,13 +237,31 @@ export default function Marketplace() {
                 </button>
                 <button
                   onClick={() => navigate('/login')}
-                  className="flex-1 py-2.5 rounded-xl bg-[#009B6B] hover:bg-emerald-700 text-white text-xs font-bold shadow-xs cursor-pointer flex items-center justify-center gap-1"
+                  className="flex-1 py-2.5 rounded-xl bg-[#009B6B] hover:bg-[#00835B] text-white text-xs font-extrabold shadow-sm transition-all cursor-pointer"
                 >
-                  <span>Sign In</span>
-                  <FiArrowRight className="w-3.5 h-3.5" />
+                  Sign In
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Seller Navigation Notice Banner */}
+        {user?.roles?.includes('seller') && (
+          <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-2xs">
+            <div className="flex items-center gap-2.5 text-emerald-950 font-medium">
+              <FiShield className="w-4 h-4 text-emerald-700 shrink-0" />
+              <span>
+                <strong className="font-extrabold text-emerald-900">Seller Mode:</strong> Exploring available feedstock from other industrial generators. Manage and track your own facility's listed streams in <strong>My Waste Listings</strong>.
+              </span>
+            </div>
+            <Link
+              to="/seller/my-waste-listings"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-extrabold text-xs shrink-0 transition-all shadow-2xs flex items-center gap-1.5"
+            >
+              <span>My Waste Listings</span>
+              <FiArrowRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
         )}
 
